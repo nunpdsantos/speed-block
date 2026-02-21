@@ -9,11 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@upstash/redis": "^1.36.2",
     "howler": "^2.2.4",
     "pixi.js": "^8.6.6"
   },
   "devDependencies": {
     "@types/howler": "^2.2.12",
+    "@vercel/node": "^5.6.6",
     "typescript": "^5.7.3",
     "vite": "^6.1.0"
   }

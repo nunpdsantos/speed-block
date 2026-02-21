@@ -39,6 +39,7 @@ async function boot() {
       layoutManager,
       audioManager,
       (score) => showGameOver(score),
+      () => showMenu(),
     );
     sceneManager.switchTo(gameScene);
   }

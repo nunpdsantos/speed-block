@@ -281,7 +281,7 @@ export class GameOverScene implements Scene {
     this.cursorLine.fill({ color: THEME.textPrimary });
   }
 
-  private submitName(name: string): void {
+  private async submitName(name: string): Promise<void> {
     if (this.nameSubmitted) return;
     this.nameSubmitted = true;
 
@@ -290,7 +290,7 @@ export class GameOverScene implements Scene {
       this.hiddenInput = null;
     }
 
-    this.rank = this.leaderboard.submit(this.score, name);
+    this.rank = await this.leaderboard.submit(this.score, name);
 
     if (this.leaderboardContainer) {
       this.container.removeChild(this.leaderboardContainer);

@@ -1,4 +1,4 @@
-import { Container } from 'pixi.js';
+import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { Scene } from './SceneManager';
 import { GameState } from '../core/GameState';
 import { LayoutManager } from '../rendering/LayoutManager';
@@ -10,6 +10,7 @@ import { AnimationManager } from '../rendering/AnimationManager';
 import { DragController, DragState } from '../input/DragController';
 import { AudioManager } from '../audio/AudioManager';
 import { FeedbackEvent } from '../core/types';
+import { FONT_DISPLAY, THEME } from '../rendering/Theme';
 
 export class GameScene implements Scene {
   container: Container;
@@ -24,17 +25,26 @@ export class GameScene implements Scene {
   private audioManager: AudioManager;
   private canvas: HTMLCanvasElement;
   private onGameOver: (score: number) => void;
+  private onQuit: () => void;
+
+  // Pause state
+  private paused = false;
+  private pauseStartTime = 0;
+  private pauseOverlay: Container | null = null;
+  private pauseBtn: Container | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
     layoutManager: LayoutManager,
     audioManager: AudioManager,
     onGameOver: (score: number) => void,
+    onQuit: () => void,
   ) {
     this.canvas = canvas;
     this.layoutManager = layoutManager;
     this.audioManager = audioManager;
     this.onGameOver = onGameOver;
+    this.onQuit = onQuit;
     this.container = new Container();
 
     this.gameState = new GameState();
@@ -64,6 +74,7 @@ export class GameScene implements Scene {
     this.animationManager.setLayout(layout);
 
     this.dragController.attach(this.canvas);
+    this.buildPauseButton(layout.width);
 
     // Start game
     this.gameState.start();
@@ -94,10 +105,162 @@ export class GameScene implements Scene {
   }
 
   update(dt: number): void {
+    if (this.paused) return;
     this.animationManager.update(dt);
-    // Update speed multiplier display in real-time
     this.uiRenderer.updateSpeedMultiplier(this.gameState.speedMultiplier);
   }
+
+  // ── Pause button ──
+
+  private buildPauseButton(screenW: number): void {
+    const btn = new Container();
+    const size = 36;
+    const x = 10;
+    const y = 38;
+
+    const bg = new Graphics();
+    bg.roundRect(x, y, size, size, 8);
+    bg.fill({ color: 0x000000, alpha: 0.25 });
+    btn.addChild(bg);
+
+    // Pause icon (two vertical bars)
+    const icon = new Graphics();
+    const barW = 4;
+    const barH = 16;
+    const gap = 6;
+    const cx = x + size / 2;
+    const cy = y + size / 2;
+    icon.rect(cx - gap / 2 - barW, cy - barH / 2, barW, barH);
+    icon.fill({ color: THEME.textPrimary });
+    icon.rect(cx + gap / 2, cy - barH / 2, barW, barH);
+    icon.fill({ color: THEME.textPrimary });
+    btn.addChild(icon);
+
+    bg.eventMode = 'static';
+    bg.cursor = 'pointer';
+    bg.on('pointerdown', (e) => {
+      e.stopPropagation();
+      this.pause();
+    });
+
+    this.pauseBtn = btn;
+    this.container.addChild(btn);
+  }
+
+  // ── Pause / Resume / Quit ──
+
+  private pause(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.pauseStartTime = Date.now();
+    this.dragController.detach(this.canvas);
+    this.buildPauseOverlay();
+  }
+
+  private resume(): void {
+    if (!this.paused) return;
+    // Compensate speed timer for paused duration
+    const pausedMs = Date.now() - this.pauseStartTime;
+    this.gameState.batchStartTime += pausedMs;
+    this.paused = false;
+    this.dragController.attach(this.canvas);
+    this.removePauseOverlay();
+  }
+
+  private quit(): void {
+    this.removePauseOverlay();
+    this.onQuit();
+  }
+
+  private buildPauseOverlay(): void {
+    const layout = this.layoutManager.layout;
+    const overlay = new Container();
+
+    // Dimmed background
+    const bg = new Graphics();
+    bg.rect(0, 0, layout.width, layout.height);
+    bg.fill({ color: 0x0a0e20, alpha: 0.85 });
+    bg.eventMode = 'static';
+    bg.on('pointerdown', (e) => e.stopPropagation());
+    overlay.addChild(bg);
+
+    // "PAUSED" title
+    const title = new Text({
+      text: 'PAUSED',
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 36,
+        fontWeight: '800',
+        fill: THEME.textPrimary,
+        letterSpacing: 8,
+      }),
+    });
+    title.anchor.set(0.5);
+    title.x = layout.width / 2;
+    title.y = layout.height * 0.35;
+    overlay.addChild(title);
+
+    // Resume button
+    const resumeBtnY = layout.height * 0.48;
+    this.addOverlayButton(overlay, 'RESUME', layout.width / 2, resumeBtnY, THEME.btnPrimary, () => this.resume());
+
+    // Quit button
+    const quitBtnY = layout.height * 0.58;
+    this.addOverlayButton(overlay, 'QUIT', layout.width / 2, quitBtnY, 0x4a4a6a, () => this.quit());
+
+    this.pauseOverlay = overlay;
+    this.container.addChild(overlay);
+  }
+
+  private addOverlayButton(
+    parent: Container, label: string,
+    cx: number, cy: number, color: number,
+    onClick: () => void,
+  ): void {
+    const btnW = 180;
+    const btnH = 48;
+    const btnX = cx - btnW / 2;
+    const btnY = cy - btnH / 2;
+
+    const btn = new Graphics();
+    btn.roundRect(btnX, btnY, btnW, btnH, 12);
+    btn.fill({ color });
+    btn.roundRect(btnX + 1, btnY + 1, btnW - 2, btnH * 0.45, 11);
+    btn.fill({ color: 0xffffff, alpha: 0.1 });
+    parent.addChild(btn);
+
+    const text = new Text({
+      text: label,
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 18,
+        fontWeight: '700',
+        fill: THEME.textPrimary,
+        letterSpacing: 4,
+      }),
+    });
+    text.anchor.set(0.5);
+    text.x = cx;
+    text.y = cy;
+    parent.addChild(text);
+
+    btn.eventMode = 'static';
+    btn.cursor = 'pointer';
+    btn.on('pointerdown', (e) => { e.stopPropagation(); onClick(); });
+    text.eventMode = 'static';
+    text.cursor = 'pointer';
+    text.on('pointerdown', (e) => { e.stopPropagation(); onClick(); });
+  }
+
+  private removePauseOverlay(): void {
+    if (this.pauseOverlay) {
+      this.container.removeChild(this.pauseOverlay);
+      this.pauseOverlay.destroy({ children: true });
+      this.pauseOverlay = null;
+    }
+  }
+
+  // ── Drag callbacks ──
 
   private setupDragCallbacks(): void {
     this.dragController.onDragStart = (state: DragState) => {
@@ -108,11 +271,9 @@ export class GameScene implements Scene {
           state.piece.color, state.isValid,
         );
       }
-      // Redraw tray without the dragged piece
       const tempPieces = [...this.gameState.activePieces];
       tempPieces[state.pieceIndex] = null;
       this.pieceRenderer.drawTray(tempPieces);
-      // Clear selection if was selected
       this.pieceRenderer.hideSelection();
     };
 
@@ -141,7 +302,6 @@ export class GameScene implements Scene {
         this.processFeedback(events);
       }
 
-      // Redraw tray with current state
       this.pieceRenderer.drawTray(this.gameState.activePieces);
       this.dragController.updatePieces(this.gameState.activePieces);
       this.dragController.updateBoard(this.gameState.board);
@@ -153,7 +313,6 @@ export class GameScene implements Scene {
       this.pieceRenderer.drawTray(this.gameState.activePieces);
     };
 
-    // Tap-to-place callbacks
     this.dragController.onSelect = (pieceIndex, _piece) => {
       this.pieceRenderer.hideSelection();
       this.pieceRenderer.showSelection(pieceIndex);
@@ -177,6 +336,8 @@ export class GameScene implements Scene {
       this.dragController.deselect();
     };
   }
+
+  // ── Feedback processing ──
 
   private processFeedback(events: FeedbackEvent[]): void {
     for (const event of events) {
@@ -202,7 +363,6 @@ export class GameScene implements Scene {
               layout.gridOriginY + layout.gridSize / 2,
               false,
             );
-            // Show speed bonus popup if significant
             if (event.scoreBreakdown.speedMultiplier > 1.05) {
               const pct = Math.round((event.scoreBreakdown.speedMultiplier - 1) * 100);
               this.animationManager.showStreakPopup(0, `SPEED +${pct}%`);

@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'freeblock_top10';
 const NAME_KEY = 'freeblock_lastname';
+const API_URL = '/api/leaderboard';
 const MAX_ENTRIES = 10;
 
 export interface LeaderboardEntry {
@@ -10,51 +11,94 @@ export interface LeaderboardEntry {
 
 export class Leaderboard {
   private entries: LeaderboardEntry[] = [];
+  private fetchPromise: Promise<void> | null = null;
 
   constructor() {
-    this.load();
+    this.loadLocal();
+    this.fetchPromise = this.fetchRemote();
   }
 
   getEntries(): LeaderboardEntry[] {
     return this.entries;
   }
 
+  /** Wait for remote data to finish loading */
+  async waitForRemote(): Promise<void> {
+    if (this.fetchPromise) await this.fetchPromise;
+  }
+
   getTopScore(): number {
     return this.entries.length > 0 ? this.entries[0].score : 0;
   }
 
-  /** Get the last name the player used */
   getLastName(): string {
     try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; }
   }
 
-  /** Save the last name for next time */
   saveLastName(name: string): void {
     try { localStorage.setItem(NAME_KEY, name); } catch { /* */ }
   }
 
-  /** Submit a score with a name. Returns the rank (1-based) if it made the top 10, or null. */
-  submit(score: number, name: string): number | null {
+  /** Submit a score. Posts to remote API, falls back to local-only on failure. */
+  async submit(score: number, name: string): Promise<number | null> {
     if (score <= 0) return null;
+    const cleanName = name.trim() || 'Player';
+    this.saveLastName(cleanName);
 
+    // Try remote
+    try {
+      const resp = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: cleanName, score }),
+      });
+      if (resp.ok) {
+        const { rank } = await resp.json();
+        // Refresh the full list from server
+        await this.fetchRemote();
+        return rank;
+      }
+    } catch { /* fall through to local */ }
+
+    // Fallback: local only
+    return this.submitLocal(score, cleanName);
+  }
+
+  wouldRank(score: number): boolean {
+    if (score <= 0) return false;
+    if (this.entries.length < MAX_ENTRIES) return true;
+    return score > this.entries[this.entries.length - 1].score;
+  }
+
+  private async fetchRemote(): Promise<void> {
+    try {
+      const resp = await fetch(API_URL);
+      if (resp.ok) {
+        const data: LeaderboardEntry[] = await resp.json();
+        this.entries = data;
+        this.saveLocal();
+      }
+    } catch {
+      // Offline — keep local data
+    }
+    this.fetchPromise = null;
+  }
+
+  private submitLocal(score: number, name: string): number | null {
     const entry: LeaderboardEntry = {
-      name: name.trim() || 'Player',
+      name,
       score,
       date: new Date().toISOString(),
     };
 
     let rank = this.entries.findIndex(e => score > e.score);
     if (rank === -1) rank = this.entries.length;
-
     if (rank >= MAX_ENTRIES) return null;
 
     this.entries.splice(rank, 0, entry);
-    if (this.entries.length > MAX_ENTRIES) {
-      this.entries.length = MAX_ENTRIES;
-    }
+    if (this.entries.length > MAX_ENTRIES) this.entries.length = MAX_ENTRIES;
 
-    this.save();
-    this.saveLastName(entry.name);
+    this.saveLocal();
 
     if (rank === 0) {
       try { localStorage.setItem('freeblock_highscore', String(score)); } catch { /* */ }
@@ -63,14 +107,7 @@ export class Leaderboard {
     return rank + 1;
   }
 
-  /** Check if a score would make the top 10 */
-  wouldRank(score: number): boolean {
-    if (score <= 0) return false;
-    if (this.entries.length < MAX_ENTRIES) return true;
-    return score > this.entries[this.entries.length - 1].score;
-  }
-
-  private load(): void {
+  private loadLocal(): void {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -81,7 +118,7 @@ export class Leaderboard {
           const score = parseInt(legacy, 10);
           if (score > 0) {
             this.entries = [{ name: 'Player', score, date: new Date().toISOString() }];
-            this.save();
+            this.saveLocal();
           }
         }
       }
@@ -90,7 +127,7 @@ export class Leaderboard {
     }
   }
 
-  private save(): void {
+  private saveLocal(): void {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.entries));
     } catch { /* */ }
