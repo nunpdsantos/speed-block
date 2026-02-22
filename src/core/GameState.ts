@@ -27,6 +27,10 @@ export class GameState {
   piecesPlacedInBatch: number;
   isGameOver: boolean;
   batchStartTime: number = 0;
+  /** Timestamp of last piece placement (for per-piece speed timer) */
+  lastPlaceTime: number = 0;
+  /** Consecutive fast placements count */
+  speedStreak: number = 0;
 
   private generator: PieceGenerator;
   private scoreEngine: ScoreEngine;
@@ -46,14 +50,19 @@ export class GameState {
     this.isGameOver = false;
   }
 
-  /** Seconds elapsed since current batch was dealt */
-  get batchElapsed(): number {
-    return (Date.now() - this.batchStartTime) / 1000;
+  /** Seconds elapsed since last piece placement (or batch start if first piece) */
+  get pieceElapsed(): number {
+    return (Date.now() - this.lastPlaceTime) / 1000;
   }
 
-  /** Current speed multiplier for display */
+  /** Current speed multiplier for display (base + speed streak) */
   get speedMultiplier(): number {
-    return this.scoreEngine.getSpeedMultiplier(this.batchElapsed);
+    return this.scoreEngine.getTotalSpeedMultiplier(this.pieceElapsed, this.speedStreak);
+  }
+
+  /** Current base speed multiplier (without streak, for timer display) */
+  get baseSpeedMultiplier(): number {
+    return this.scoreEngine.getSpeedMultiplier(this.pieceElapsed);
   }
 
   /** Start a new game */
@@ -64,7 +73,10 @@ export class GameState {
     this.movesSinceLastClear = 0;
     this.piecesPlacedInBatch = 0;
     this.isGameOver = false;
-    this.batchStartTime = Date.now();
+    this.speedStreak = 0;
+    const now = Date.now();
+    this.batchStartTime = now;
+    this.lastPlaceTime = now;
     const batch = this.generator.generateBatch(this.board);
     this.activePieces = [...batch];
     return { type: 'newBatch', newBatch: batch };
@@ -80,8 +92,8 @@ export class GameState {
     // 1. Validate
     if (!this.board.canPlace(piece.shape, row, col)) return events;
 
-    // Snapshot elapsed time for speed bonus
-    const elapsedSeconds = this.batchElapsed;
+    // Snapshot elapsed time since last placement for speed bonus
+    const elapsedSeconds = this.pieceElapsed;
 
     // 2. Commit cells
     const placedCells = this.board.place(piece.shape, row, col, piece.color);
@@ -113,7 +125,14 @@ export class GameState {
       }
     }
 
-    // 7. Compute score (with speed bonus)
+    // 7. Update speed streak (before scoring so current streak applies)
+    if (this.scoreEngine.isFastPlacement(elapsedSeconds)) {
+      this.speedStreak++;
+    } else {
+      this.speedStreak = 0;
+    }
+
+    // 8. Compute score (with speed bonus + speed streak)
     if (clearResult.totalLinesCleared > 0 || this.config.scoring.placementPointsPerCell > 0) {
       const breakdown = this.scoreEngine.calculate(
         clearResult,
@@ -121,6 +140,7 @@ export class GameState {
         this.streakCount,
         isBoardClear,
         elapsedSeconds,
+        this.speedStreak,
       );
       this.score += breakdown.turnScore;
       breakdown.totalScore = this.score;
@@ -140,20 +160,23 @@ export class GameState {
       }
     }
 
-    // 8. Mark piece as placed
+    // 9. Mark piece as placed, reset per-piece timer
     this.activePieces[pieceIndex] = null;
     this.piecesPlacedInBatch++;
+    this.lastPlaceTime = Date.now();
 
-    // 9. Generate new batch if all 3 placed
+    // 10. Generate new batch if all 3 placed
     if (this.piecesPlacedInBatch >= 3) {
       this.piecesPlacedInBatch = 0;
-      this.batchStartTime = Date.now();
+      const now = Date.now();
+      this.batchStartTime = now;
+      this.lastPlaceTime = now;
       const newBatch = this.generator.generateBatch(this.board);
       this.activePieces = [...newBatch];
       events.push({ type: 'newBatch', newBatch });
     }
 
-    // 10. Check game over
+    // 11. Check game over
     if (this.checkGameOver()) {
       this.isGameOver = true;
       events.push({ type: 'gameOver', isGameOver: true });

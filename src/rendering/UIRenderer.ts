@@ -129,18 +129,24 @@ export class UIRenderer {
     }
   }
 
-  updateSpeedMultiplier(multiplier: number): void {
+  updateSpeedMultiplier(multiplier: number, speedStreak: number): void {
     if (multiplier > 1.01) {
       const pct = Math.round((multiplier - 1) * 100);
-      this.speedText.text = `SPEED +${pct}%`;
+      let label = `SPEED +${pct}%`;
+      if (speedStreak >= 3) {
+        label += ` \u26A1${speedStreak}`;  // ⚡ lightning bolt + streak count
+      }
+      this.speedText.text = label;
       this.speedText.visible = true;
-      // Color shifts: green at low bonus, gold at high
-      if (multiplier >= 1.7) {
-        this.speedText.style.fill = THEME.gold;
-      } else if (multiplier >= 1.3) {
-        this.speedText.style.fill = 0x20bf6b;
+      // Color tiers for the expanded 1x–6x range
+      if (multiplier >= 3.5) {
+        this.speedText.style.fill = 0xff4444;    // red — blazing
+      } else if (multiplier >= 2.5) {
+        this.speedText.style.fill = THEME.gold;   // gold — excellent
+      } else if (multiplier >= 1.8) {
+        this.speedText.style.fill = 0x20bf6b;     // green — solid
       } else {
-        this.speedText.style.fill = THEME.accent;
+        this.speedText.style.fill = THEME.accent;  // blue — baseline
       }
     } else {
       this.speedText.visible = false;

@@ -107,7 +107,7 @@ export class GameScene implements Scene {
   update(dt: number): void {
     if (this.paused) return;
     this.animationManager.update(dt);
-    this.uiRenderer.updateSpeedMultiplier(this.gameState.speedMultiplier);
+    this.uiRenderer.updateSpeedMultiplier(this.gameState.speedMultiplier, this.gameState.speedStreak);
   }
 
   // ── Pause button ──
@@ -159,9 +159,10 @@ export class GameScene implements Scene {
 
   private resume(): void {
     if (!this.paused) return;
-    // Compensate speed timer for paused duration
+    // Compensate speed timers for paused duration
     const pausedMs = Date.now() - this.pauseStartTime;
     this.gameState.batchStartTime += pausedMs;
+    this.gameState.lastPlaceTime += pausedMs;
     this.paused = false;
     this.dragController.attach(this.canvas);
     this.removePauseOverlay();
@@ -341,6 +342,20 @@ export class GameScene implements Scene {
     };
   }
 
+  private showSpeedPopup(speedMultiplier: number): void {
+    if (speedMultiplier <= 1.05) return;
+    const pct = Math.round((speedMultiplier - 1) * 100);
+    let label: string;
+    if (speedMultiplier >= 4.0) {
+      label = `BLAZING +${pct}%`;
+    } else if (speedMultiplier >= 2.5) {
+      label = `LIGHTNING +${pct}%`;
+    } else {
+      label = `SPEED +${pct}%`;
+    }
+    this.animationManager.showStreakPopup(0, label);
+  }
+
   // ── Feedback processing ──
 
   private processFeedback(events: FeedbackEvent[]): void {
@@ -367,10 +382,7 @@ export class GameScene implements Scene {
               layout.gridOriginY + layout.gridSize / 2,
               false,
             );
-            if (event.scoreBreakdown.speedMultiplier > 1.05) {
-              const pct = Math.round((event.scoreBreakdown.speedMultiplier - 1) * 100);
-              this.animationManager.showStreakPopup(0, `SPEED +${pct}%`);
-            }
+            this.showSpeedPopup(event.scoreBreakdown.speedMultiplier);
           }
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
           this.uiRenderer.updateScore(this.gameState.score);
@@ -393,10 +405,7 @@ export class GameScene implements Scene {
               layout.gridOriginY + layout.gridSize / 2,
               true,
             );
-            if (event.scoreBreakdown.speedMultiplier > 1.05) {
-              const pct = Math.round((event.scoreBreakdown.speedMultiplier - 1) * 100);
-              this.animationManager.showStreakPopup(0, `SPEED +${pct}%`);
-            }
+            this.showSpeedPopup(event.scoreBreakdown.speedMultiplier);
           }
           this.animationManager.showStreakPopup(this.gameState.streakCount);
           this.gridRenderer.drawBlocks(this.gameState.board.grid);

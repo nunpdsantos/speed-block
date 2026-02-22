@@ -8,13 +8,28 @@ export class ScoreEngine {
     this.config = config;
   }
 
-  /** Calculate speed multiplier based on elapsed seconds since batch start */
+  /** Calculate speed multiplier based on elapsed seconds since last piece placement */
   getSpeedMultiplier(elapsedSeconds: number): number {
     const cfg = this.config;
     return Math.max(
       cfg.speedBonusMinMultiplier,
       cfg.speedBonusMaxMultiplier - elapsedSeconds * cfg.speedBonusDecayPerSecond,
     );
+  }
+
+  /** Get the total speed multiplier including speed streak bonus */
+  getTotalSpeedMultiplier(elapsedSeconds: number, speedStreak: number): number {
+    const base = this.getSpeedMultiplier(elapsedSeconds);
+    const streakBonus = Math.min(
+      speedStreak * this.config.speedStreakBonus,
+      this.config.speedStreakCap,
+    );
+    return base + streakBonus;
+  }
+
+  /** Check if a placement time qualifies as "fast" */
+  isFastPlacement(elapsedSeconds: number): boolean {
+    return elapsedSeconds < this.config.speedStreakThreshold;
   }
 
   /** Calculate score for a single turn */
@@ -24,6 +39,7 @@ export class ScoreEngine {
     streakCount: number,
     isBoardClear: boolean,
     elapsedSeconds: number,
+    speedStreak: number,
   ): ScoreBreakdown {
     const cfg = this.config;
 
@@ -53,9 +69,9 @@ export class ScoreEngine {
       cfg.streakMultiplierCap,
     );
 
-    // Speed multiplier (only applies when lines are cleared)
+    // Speed multiplier (base + speed streak bonus, only when lines are cleared)
     const speedMultiplier = clearResult.totalLinesCleared > 0
-      ? this.getSpeedMultiplier(elapsedSeconds)
+      ? this.getTotalSpeedMultiplier(elapsedSeconds, speedStreak)
       : 1.0;
 
     // Final score
