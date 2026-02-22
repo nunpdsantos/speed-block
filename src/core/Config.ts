@@ -23,6 +23,12 @@ export interface TimerConfig {
   streakBonusPerLevel: number;   // extra seconds per streak level on a clear
 }
 
+export interface SpeedConfig {
+  maxMultiplier: number;          // multiplier at instant placement (e.g. 3.0)
+  minMultiplier: number;          // floor multiplier after decay window (1.0)
+  decayWindowSeconds: number;     // seconds until multiplier bottoms out
+}
+
 export interface GenerationConfig {
   ensureLegalPlacement: boolean;
   maxRerollAttempts: number;
@@ -31,6 +37,7 @@ export interface GenerationConfig {
 export interface GameConfig {
   scoring: ScoringConfig;
   timer: TimerConfig;
+  speed: SpeedConfig;
   generation: GenerationConfig;
 }
 
@@ -57,6 +64,11 @@ export const DEFAULT_CONFIG: GameConfig = {
     clear3PlusLineBonus: 10,
     boardClearBonus: 15,
     streakBonusPerLevel: 1,
+  },
+  speed: {
+    maxMultiplier: 3.0,
+    minMultiplier: 1.0,
+    decayWindowSeconds: 8,
   },
   generation: {
     ensureLegalPlacement: true,

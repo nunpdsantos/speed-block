@@ -46,6 +46,7 @@ export interface ScoreBreakdown {
   basePoints: number;
   lineBonus: number;
   streakMultiplier: number;
+  speedMultiplier: number;
   turnScore: number;
   totalScore: number;
 }

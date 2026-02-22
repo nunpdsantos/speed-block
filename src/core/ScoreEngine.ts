@@ -1,13 +1,22 @@
-import { ScoringConfig, TimerConfig } from './Config';
+import { ScoringConfig, TimerConfig, SpeedConfig } from './Config';
 import { ClearResult, ScoreBreakdown } from './types';
 
 export class ScoreEngine {
   private scoring: ScoringConfig;
   private timer: TimerConfig;
+  private speed: SpeedConfig;
 
-  constructor(scoring: ScoringConfig, timer: TimerConfig) {
+  constructor(scoring: ScoringConfig, timer: TimerConfig, speed: SpeedConfig) {
     this.scoring = scoring;
     this.timer = timer;
+    this.speed = speed;
+  }
+
+  /** Get speed multiplier based on elapsed seconds since last placement */
+  getSpeedMultiplier(elapsedSecs: number): number {
+    const { maxMultiplier, minMultiplier, decayWindowSeconds } = this.speed;
+    const t = Math.min(elapsedSecs / decayWindowSeconds, 1);
+    return maxMultiplier - (maxMultiplier - minMultiplier) * t;
   }
 
   /** Calculate score for a single turn (clears only — no placement points) */
@@ -15,6 +24,7 @@ export class ScoreEngine {
     clearResult: ClearResult,
     streakCount: number,
     isBoardClear: boolean,
+    speedMultiplier: number = 1,
   ): ScoreBreakdown {
     const cfg = this.scoring;
 
@@ -43,18 +53,19 @@ export class ScoreEngine {
       cfg.streakMultiplierCap,
     );
 
-    // Final score (no speed multiplier — timer is the pressure now)
+    // Final score: streak × speed
     let turnScore: number;
     if (cfg.streakBonusAppliesTo === 'base+combo') {
-      turnScore = Math.floor((basePoints + lineBonus) * streakMultiplier);
+      turnScore = Math.floor((basePoints + lineBonus) * streakMultiplier * speedMultiplier);
     } else {
-      turnScore = Math.floor(basePoints * streakMultiplier) + lineBonus;
+      turnScore = Math.floor(basePoints * streakMultiplier * speedMultiplier) + lineBonus;
     }
 
     return {
       basePoints,
       lineBonus,
       streakMultiplier,
+      speedMultiplier,
       turnScore,
       totalScore: 0, // filled by GameState
     };

@@ -29,7 +29,6 @@ export class GameScene implements Scene {
 
   // Pause state
   private paused = false;
-  private pauseStartTime = 0;
   private pauseOverlay: Container | null = null;
   private pauseBtn: Container | null = null;
 
@@ -120,6 +119,13 @@ export class GameScene implements Scene {
 
     // Update timer bar
     this.uiRenderer.updateTimer(this.gameState.timeRemaining, this.gameState.maxTime, dt);
+
+    // Update speed multiplier display
+    this.uiRenderer.updateSpeed(
+      this.gameState.currentSpeedMultiplier,
+      this.gameState.config.speed.decayWindowSeconds,
+      this.gameState.pieceElapsed,
+    );
   }
 
   // ── Pause button ──
@@ -164,7 +170,6 @@ export class GameScene implements Scene {
   private pause(): void {
     if (this.paused) return;
     this.paused = true;
-    this.pauseStartTime = Date.now();
     this.dragController.detach(this.canvas);
     this.buildPauseOverlay();
   }

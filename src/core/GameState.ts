@@ -27,16 +27,20 @@ export class GameState {
   isGameOver: boolean;
   /** Time remaining in seconds */
   timeRemaining: number = 0;
+  /** Seconds elapsed since last piece placement (for speed multiplier) */
+  pieceElapsed: number = 0;
+  /** Current speed multiplier snapshot (set at moment of placement) */
+  lastSpeedMultiplier: number = 1;
 
   private generator: PieceGenerator;
   private scoreEngine: ScoreEngine;
-  private config: GameConfig;
+  readonly config: GameConfig;
 
   constructor(config: GameConfig = DEFAULT_CONFIG) {
     this.config = config;
     this.board = new Board();
     this.generator = new PieceGenerator(config.generation);
-    this.scoreEngine = new ScoreEngine(config.scoring, config.timer);
+    this.scoreEngine = new ScoreEngine(config.scoring, config.timer, config.speed);
     this.activePieces = [null, null, null];
     this.score = 0;
     this.highScore = readCachedTopScore();
@@ -59,14 +63,22 @@ export class GameState {
     this.piecesPlacedInBatch = 0;
     this.isGameOver = false;
     this.timeRemaining = this.config.timer.startSeconds;
+    this.pieceElapsed = 0;
+    this.lastSpeedMultiplier = 1;
     const batch = this.generator.generateBatch(this.board);
     this.activePieces = [...batch];
     return { type: 'newBatch', newBatch: batch };
   }
 
+  /** Get current speed multiplier (live, for UI display) */
+  get currentSpeedMultiplier(): number {
+    return this.scoreEngine.getSpeedMultiplier(this.pieceElapsed);
+  }
+
   /** Tick the timer down. Returns true if time ran out. */
   tick(dt: number): boolean {
     if (this.isGameOver) return false;
+    this.pieceElapsed += dt;
     this.timeRemaining = Math.max(0, this.timeRemaining - dt);
     if (this.timeRemaining <= 0) {
       this.isGameOver = true;
@@ -127,12 +139,18 @@ export class GameState {
     );
     this.addTime(timeBonus);
 
-    // 8. Compute score (clears only)
+    // 8. Snapshot speed multiplier and reset piece timer
+    const speedMult = this.scoreEngine.getSpeedMultiplier(this.pieceElapsed);
+    this.lastSpeedMultiplier = speedMult;
+    this.pieceElapsed = 0;
+
+    // 9. Compute score (clears only)
     if (clearResult.totalLinesCleared > 0) {
       const breakdown = this.scoreEngine.calculate(
         clearResult,
         this.streakCount,
         isBoardClear,
+        speedMult,
       );
       this.score += breakdown.turnScore;
       breakdown.totalScore = this.score;
@@ -154,11 +172,11 @@ export class GameState {
       events[0].timeBonus = timeBonus;
     }
 
-    // 9. Mark piece as placed
+    // 10. Mark piece as placed
     this.activePieces[pieceIndex] = null;
     this.piecesPlacedInBatch++;
 
-    // 10. Generate new batch if all 3 placed
+    // 11. Generate new batch if all 3 placed
     if (this.piecesPlacedInBatch >= 3) {
       this.piecesPlacedInBatch = 0;
       const newBatch = this.generator.generateBatch(this.board);
@@ -166,7 +184,7 @@ export class GameState {
       events.push({ type: 'newBatch', newBatch });
     }
 
-    // 11. Check game over (no valid placement)
+    // 12. Check game over (no valid placement)
     if (this.checkGameOver()) {
       this.isGameOver = true;
       events.push({ type: 'gameOver', isGameOver: true });
