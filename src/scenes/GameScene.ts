@@ -107,7 +107,7 @@ export class GameScene implements Scene {
   update(dt: number): void {
     if (this.paused) return;
     this.animationManager.update(dt);
-    this.uiRenderer.updateSpeedMultiplier(this.gameState.speedMultiplier, this.gameState.speedStreak);
+    this.uiRenderer.updateSpeedMultiplier(this.gameState.speedMultiplier, this.gameState.speedStreak, dt);
   }
 
   // ── Pause button ──
