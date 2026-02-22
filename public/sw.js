@@ -1,7 +1,7 @@
 // Service worker — network-first with auto-update
 // Bump CACHE_VERSION on each deploy (Vite's hashed filenames handle asset busting,
 // but this ensures the SW itself triggers an update check).
-const CACHE_NAME = 'freeblock-v1';
+const CACHE_NAME = 'speedblock-v1';
 
 const PRECACHE_URLS = [
   '/',

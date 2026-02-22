@@ -1,6 +1,6 @@
-const STORAGE_KEY = 'freeblock_top10';
-const NAME_KEY = 'freeblock_lastname';
-const PLAYER_ID_KEY = 'freeblock_playerid';
+const STORAGE_KEY = 'speedblock_top10';
+const NAME_KEY = 'speedblock_lastname';
+const PLAYER_ID_KEY = 'speedblock_playerid';
 const MAX_ENTRIES = 10;
 const API_URL = '/api/leaderboard';
 

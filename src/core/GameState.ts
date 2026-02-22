@@ -7,7 +7,7 @@ import { PieceInstance, FeedbackEvent, ClearResult } from './types';
 /** Read the cached top score from localStorage (written by Leaderboard) */
 function readCachedTopScore(): number {
   try {
-    const raw = localStorage.getItem('freeblock_top10');
+    const raw = localStorage.getItem('speedblock_top10');
     if (raw) {
       const entries = JSON.parse(raw);
       return entries.length > 0 ? entries[0].score : 0;

@@ -2,7 +2,7 @@ import { Redis } from '@upstash/redis';
 
 export const config = { runtime: 'edge' };
 
-const KV_KEY = 'leaderboard:freeblock';
+const KV_KEY = 'leaderboard:speedblock';
 const MAX_ENTRIES = 10;
 
 interface Entry {

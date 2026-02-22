@@ -1,6 +1,6 @@
 {
-  "name": "Free Block",
-  "short_name": "Free Block",
+  "name": "Speed Block",
+  "short_name": "Speed Block",
   "description": "Block puzzle game — clear lines, build streaks, climb the leaderboard",
   "start_url": "/",
   "display": "standalone",

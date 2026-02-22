@@ -24,7 +24,7 @@ export class MenuScene implements Scene {
   private build(): void {
     // Title
     const title = new Text({
-      text: 'FREE BLOCK',
+      text: 'SPEED BLOCK',
       style: new TextStyle({
         fontFamily: FONT_DISPLAY,
         fontSize: 44,
