@@ -1,6 +1,7 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { Scene } from './SceneManager';
 import { Leaderboard } from '../core/Leaderboard';
+import { Difficulty, DIFFICULTY_LABELS } from '../core/Config';
 import { FONT_DISPLAY, FONT_MONO, THEME } from '../rendering/Theme';
 
 export class GameOverScene implements Scene {
@@ -10,6 +11,7 @@ export class GameOverScene implements Scene {
   private width: number;
   private height: number;
   private leaderboard: Leaderboard;
+  private difficulty: Difficulty;
   private nameSubmitted = false;
   private rank: number | null = null;
   private leaderboardContainer: Container | null = null;
@@ -22,12 +24,14 @@ export class GameOverScene implements Scene {
     width: number, height: number,
     score: number,
     leaderboard: Leaderboard,
+    difficulty: Difficulty,
     onReplay: () => void,
   ) {
     this.width = width;
     this.height = height;
     this.score = score;
     this.leaderboard = leaderboard;
+    this.difficulty = difficulty;
     this.onReplay = onReplay;
     this.container = new Container();
     this.build();
@@ -98,6 +102,22 @@ export class GameOverScene implements Scene {
     scoreText.x = this.width / 2;
     scoreText.y = this.height * 0.16;
     this.container.addChild(scoreText);
+
+    // Difficulty badge
+    const diffLabel = new Text({
+      text: DIFFICULTY_LABELS[this.difficulty],
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 11,
+        fontWeight: '600',
+        fill: THEME.textMuted,
+        letterSpacing: 3,
+      }),
+    });
+    diffLabel.anchor.set(0.5);
+    diffLabel.x = this.width / 2;
+    diffLabel.y = this.height * 0.205;
+    this.container.addChild(diffLabel);
 
     const wouldRank = this.leaderboard.wouldRank(this.score);
 
@@ -350,7 +370,7 @@ export class GameOverScene implements Scene {
       : this.height * 0.28;
 
     const headerText = new Text({
-      text: 'LEADERBOARD',
+      text: `LEADERBOARD — ${DIFFICULTY_LABELS[this.difficulty]}`,
       style: new TextStyle({
         fontFamily: FONT_DISPLAY,
         fontSize: 12,

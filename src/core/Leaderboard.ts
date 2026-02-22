@@ -1,8 +1,13 @@
-const STORAGE_KEY = 'speedblock_top10';
+import { Difficulty } from './Config';
+
 const NAME_KEY = 'speedblock_lastname';
 const PLAYER_ID_KEY = 'speedblock_playerid';
 const MAX_ENTRIES = 10;
 const API_URL = '/api/leaderboard';
+
+function storageKey(difficulty: Difficulty): string {
+  return `speedblock_${difficulty}_top10`;
+}
 
 export interface LeaderboardEntry {
   name: string;
@@ -13,10 +18,24 @@ export interface LeaderboardEntry {
 export class Leaderboard {
   private entries: LeaderboardEntry[] = [];
   private fetchPromise: Promise<void> | null = null;
+  private difficulty: Difficulty;
 
-  constructor() {
+  constructor(difficulty: Difficulty = 'fast') {
+    this.difficulty = difficulty;
     this.loadLocal();
     this.fetchPromise = this.fetchRemote();
+  }
+
+  getDifficulty(): Difficulty {
+    return this.difficulty;
+  }
+
+  /** Switch to a different difficulty's leaderboard */
+  async switchDifficulty(difficulty: Difficulty): Promise<void> {
+    if (difficulty === this.difficulty) return;
+    this.difficulty = difficulty;
+    this.loadLocal();
+    await this.fetchRemote();
   }
 
   getEntries(): LeaderboardEntry[] {
@@ -52,14 +71,13 @@ export class Leaderboard {
     }
   }
 
-  /** Submit a score. Falls back to local-only on failure. */
   async submit(score: number, name: string): Promise<number | null> {
     if (score <= 0) return null;
     const cleanName = name.trim() || 'Player';
     this.saveLastName(cleanName);
 
     try {
-      const res = await fetch(API_URL, {
+      const res = await fetch(`${API_URL}?difficulty=${this.difficulty}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -94,7 +112,7 @@ export class Leaderboard {
 
   private async fetchRemote(): Promise<void> {
     try {
-      const res = await fetch(API_URL);
+      const res = await fetch(`${API_URL}?difficulty=${this.difficulty}`);
       if (!res.ok) throw new Error('API error');
       const data = await res.json();
       this.entries = data.map((e: Record<string, unknown>) => ({
@@ -124,9 +142,11 @@ export class Leaderboard {
 
   private loadLocal(): void {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(storageKey(this.difficulty));
       if (raw) {
         this.entries = JSON.parse(raw);
+      } else {
+        this.entries = [];
       }
     } catch {
       this.entries = [];
@@ -135,7 +155,7 @@ export class Leaderboard {
 
   private saveLocal(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.entries));
+      localStorage.setItem(storageKey(this.difficulty), JSON.stringify(this.entries));
     } catch { /* */ }
   }
 }

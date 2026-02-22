@@ -10,6 +10,7 @@ import { AnimationManager } from '../rendering/AnimationManager';
 import { DragController, DragState } from '../input/DragController';
 import { AudioManager } from '../audio/AudioManager';
 import { FeedbackEvent } from '../core/types';
+import { Difficulty, GameConfig } from '../core/Config';
 import { FONT_DISPLAY, THEME } from '../rendering/Theme';
 
 export class GameScene implements Scene {
@@ -36,6 +37,8 @@ export class GameScene implements Scene {
     canvas: HTMLCanvasElement,
     layoutManager: LayoutManager,
     audioManager: AudioManager,
+    config: GameConfig,
+    difficulty: Difficulty,
     onGameOver: (score: number) => void,
     onQuit: () => void,
   ) {
@@ -46,7 +49,7 @@ export class GameScene implements Scene {
     this.onQuit = onQuit;
     this.container = new Container();
 
-    this.gameState = new GameState();
+    this.gameState = new GameState(config, difficulty);
     this.gridRenderer = new GridRenderer();
     this.pieceRenderer = new PieceRenderer();
     this.ghostRenderer = new GhostRenderer();

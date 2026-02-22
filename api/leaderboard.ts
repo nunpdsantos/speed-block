@@ -2,7 +2,7 @@ import { Redis } from '@upstash/redis';
 
 export const config = { runtime: 'edge' };
 
-const KV_KEY = 'leaderboard:speedblock';
+const VALID_DIFFICULTIES = ['chill', 'fast', 'blitz'];
 const MAX_ENTRIES = 10;
 
 interface Entry {
@@ -12,6 +12,10 @@ interface Entry {
   date: string;
 }
 
+function kvKey(difficulty: string): string {
+  return `leaderboard:speedblock:${difficulty}`;
+}
+
 function getRedis(): Redis {
   return new Redis({
     url: process.env.KV_REST_API_URL!,
@@ -19,14 +23,20 @@ function getRedis(): Redis {
   });
 }
 
-async function getEntries(): Promise<Entry[]> {
+async function getEntries(difficulty: string): Promise<Entry[]> {
   const redis = getRedis();
-  return (await redis.get<Entry[]>(KV_KEY)) || [];
+  return (await redis.get<Entry[]>(kvKey(difficulty))) || [];
 }
 
-async function saveEntries(entries: Entry[]): Promise<void> {
+async function saveEntries(difficulty: string, entries: Entry[]): Promise<void> {
   const redis = getRedis();
-  await redis.set(KV_KEY, entries);
+  await redis.set(kvKey(difficulty), entries);
+}
+
+function parseDifficulty(url: string): string {
+  const u = new URL(url);
+  const d = u.searchParams.get('difficulty') || 'fast';
+  return VALID_DIFFICULTIES.includes(d) ? d : 'fast';
 }
 
 export default async function handler(request: Request): Promise<Response> {
@@ -35,8 +45,10 @@ export default async function handler(request: Request): Promise<Response> {
     'Cache-Control': 'no-store',
   };
 
+  const difficulty = parseDifficulty(request.url);
+
   if (request.method === 'GET') {
-    const entries = await getEntries();
+    const entries = await getEntries(difficulty);
     return new Response(JSON.stringify(entries), { headers });
   }
 
@@ -53,9 +65,8 @@ export default async function handler(request: Request): Promise<Response> {
       return new Response(JSON.stringify({ error: 'Invalid data' }), { status: 400, headers });
     }
 
-    const entries = await getEntries();
+    const entries = await getEntries(difficulty);
 
-    // If this player already has an entry, only update if new score is higher
     const existingIdx = entries.findIndex(e => e.id === id);
     if (existingIdx >= 0) {
       if (entries[existingIdx].score >= score) {
@@ -72,15 +83,13 @@ export default async function handler(request: Request): Promise<Response> {
       date: new Date().toISOString().split('T')[0],
     };
 
-    // Insert in sorted position (descending by score)
     let rank = entries.findIndex(e => score > e.score);
     if (rank === -1) rank = entries.length;
     entries.splice(rank, 0, entry);
 
-    // Keep top N only
     if (entries.length > MAX_ENTRIES) entries.length = MAX_ENTRIES;
 
-    await saveEntries(entries);
+    await saveEntries(difficulty, entries);
 
     const finalRank = rank < MAX_ENTRIES ? rank + 1 : null;
     return new Response(JSON.stringify({ rank: finalRank, entries }), { headers });

@@ -1,3 +1,11 @@
+export type Difficulty = 'chill' | 'fast' | 'blitz';
+
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  chill: 'CHILL',
+  fast: 'FAST',
+  blitz: 'BLITZ',
+};
+
 export interface ScoringConfig {
   pointsPerBlockCleared: number;
   pointsPerLineCleared: number;
@@ -13,19 +21,17 @@ export interface ScoringConfig {
 }
 
 export interface TimerConfig {
-  startSeconds: number;          // initial time bank
-  maxSeconds: number;            // cap so timer can't grow forever
-  piecePlaceBonus: number;       // max seconds added per piece placed (at instant speed)
-  clear1LineBonus: number;       // seconds added for clearing 1 line
-  clear2LineBonus: number;       // seconds added for clearing 2 lines simultaneously
-  clear3PlusLineBonus: number;   // seconds added for clearing 3+ lines
-  boardClearBonus: number;       // seconds added for clearing the entire board
-  streakBonusPerLevel: number;   // extra seconds per streak level on a clear
-  // Speed → time scaling
-  speedWindowSeconds: number;    // seconds until speed bonus fully decays
-  minTimeBonusFraction: number;  // floor fraction of time bonus at slowest (e.g. 0.33 = 1/3)
-  // Drain acceleration
-  drainAccelPerMinute: number;   // how much drain rate increases per minute survived
+  startSeconds: number;
+  maxSeconds: number;
+  piecePlaceBonus: number;
+  clear1LineBonus: number;
+  clear2LineBonus: number;
+  clear3PlusLineBonus: number;
+  boardClearBonus: number;
+  streakBonusPerLevel: number;
+  speedWindowSeconds: number;
+  minTimeBonusFraction: number;
+  drainAccelPerMinute: number;
 }
 
 export interface GenerationConfig {
@@ -39,35 +45,77 @@ export interface GameConfig {
   generation: GenerationConfig;
 }
 
-export const DEFAULT_CONFIG: GameConfig = {
-  scoring: {
-    pointsPerBlockCleared: 10,
-    pointsPerLineCleared: 0,
-    comboBaseBonus: 20,
-    comboBonusPerExtraLine: 10,
-    comboBonusCap: 100,
-    streakMultiplierBase: 1.0,
-    streakMultiplierIncrement: 0.5,
-    streakMultiplierCap: 8.0,
-    comboWindowPlacements: 3,
-    boardClearBonus: 500,
-    streakBonusAppliesTo: 'base+combo',
+const SHARED_SCORING: ScoringConfig = {
+  pointsPerBlockCleared: 10,
+  pointsPerLineCleared: 0,
+  comboBaseBonus: 20,
+  comboBonusPerExtraLine: 10,
+  comboBonusCap: 100,
+  streakMultiplierBase: 1.0,
+  streakMultiplierIncrement: 0.5,
+  streakMultiplierCap: 8.0,
+  comboWindowPlacements: 3,
+  boardClearBonus: 500,
+  streakBonusAppliesTo: 'base+combo',
+};
+
+const SHARED_GENERATION: GenerationConfig = {
+  ensureLegalPlacement: true,
+  maxRerollAttempts: 20,
+};
+
+export const DIFFICULTY_CONFIGS: Record<Difficulty, GameConfig> = {
+  chill: {
+    scoring: SHARED_SCORING,
+    timer: {
+      startSeconds: 60,
+      maxSeconds: 75,
+      piecePlaceBonus: 2.5,
+      clear1LineBonus: 4,
+      clear2LineBonus: 7,
+      clear3PlusLineBonus: 10,
+      boardClearBonus: 15,
+      streakBonusPerLevel: 1,
+      speedWindowSeconds: 6,
+      minTimeBonusFraction: 0.25,
+      drainAccelPerMinute: 0.20,
+    },
+    generation: SHARED_GENERATION,
   },
-  timer: {
-    startSeconds: 60,
-    maxSeconds: 90,
-    piecePlaceBonus: 3,
-    clear1LineBonus: 4,
-    clear2LineBonus: 7,
-    clear3PlusLineBonus: 10,
-    boardClearBonus: 15,
-    streakBonusPerLevel: 1,
-    speedWindowSeconds: 8,
-    minTimeBonusFraction: 0.33,
-    drainAccelPerMinute: 0.15,
+  fast: {
+    scoring: SHARED_SCORING,
+    timer: {
+      startSeconds: 45,
+      maxSeconds: 55,
+      piecePlaceBonus: 2,
+      clear1LineBonus: 3,
+      clear2LineBonus: 5,
+      clear3PlusLineBonus: 7,
+      boardClearBonus: 10,
+      streakBonusPerLevel: 1,
+      speedWindowSeconds: 5,
+      minTimeBonusFraction: 0.20,
+      drainAccelPerMinute: 0.30,
+    },
+    generation: SHARED_GENERATION,
   },
-  generation: {
-    ensureLegalPlacement: true,
-    maxRerollAttempts: 20,
+  blitz: {
+    scoring: SHARED_SCORING,
+    timer: {
+      startSeconds: 30,
+      maxSeconds: 40,
+      piecePlaceBonus: 1.5,
+      clear1LineBonus: 2,
+      clear2LineBonus: 3.5,
+      clear3PlusLineBonus: 5,
+      boardClearBonus: 8,
+      streakBonusPerLevel: 1,
+      speedWindowSeconds: 4,
+      minTimeBonusFraction: 0.15,
+      drainAccelPerMinute: 0.40,
+    },
+    generation: SHARED_GENERATION,
   },
 };
+
+export const DEFAULT_CONFIG = DIFFICULTY_CONFIGS.chill;

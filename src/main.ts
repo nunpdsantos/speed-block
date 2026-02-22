@@ -6,6 +6,7 @@ import { GameScene } from './scenes/GameScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { AudioManager } from './audio/AudioManager';
 import { Leaderboard } from './core/Leaderboard';
+import { Difficulty, DIFFICULTY_CONFIGS } from './core/Config';
 
 async function boot() {
   const container = document.getElementById('game-container')!;
@@ -25,19 +26,33 @@ async function boot() {
   const layoutManager = new LayoutManager();
   const audioManager = new AudioManager();
   const sceneManager = new SceneManager(app.stage);
-  const leaderboard = new Leaderboard();
+
+  let selectedDifficulty: Difficulty = 'fast';
+  const leaderboard = new Leaderboard(selectedDifficulty);
 
   function showMenu() {
     const layout = layoutManager.recalculate(window.innerWidth, window.innerHeight);
-    const menu = new MenuScene(layout.width, layout.height, leaderboard, () => startGame());
+    const menu = new MenuScene(
+      layout.width, layout.height,
+      leaderboard,
+      selectedDifficulty,
+      (difficulty) => {
+        selectedDifficulty = difficulty;
+        leaderboard.switchDifficulty(difficulty);
+      },
+      () => startGame(),
+    );
     sceneManager.switchTo(menu);
   }
 
   function startGame() {
+    const config = DIFFICULTY_CONFIGS[selectedDifficulty];
     const gameScene = new GameScene(
       app.canvas,
       layoutManager,
       audioManager,
+      config,
+      selectedDifficulty,
       (score) => showGameOver(score),
       () => showMenu(),
     );
@@ -50,6 +65,7 @@ async function boot() {
       layout.width, layout.height,
       score,
       leaderboard,
+      selectedDifficulty,
       () => startGame(),
     );
     sceneManager.switchTo(gameOver);

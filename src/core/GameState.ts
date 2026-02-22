@@ -1,13 +1,13 @@
 import { Board } from './Board';
 import { PieceGenerator } from './PieceGenerator';
 import { ScoreEngine } from './ScoreEngine';
-import { GameConfig, DEFAULT_CONFIG } from './Config';
+import { Difficulty, GameConfig, DEFAULT_CONFIG } from './Config';
 import { PieceInstance, FeedbackEvent, ClearResult } from './types';
 
-/** Read the cached top score from localStorage (written by Leaderboard) */
-function readCachedTopScore(): number {
+/** Read the cached top score from localStorage for a given difficulty */
+function readCachedTopScore(difficulty: Difficulty): number {
   try {
-    const raw = localStorage.getItem('speedblock_top10');
+    const raw = localStorage.getItem(`speedblock_${difficulty}_top10`);
     if (raw) {
       const entries = JSON.parse(raw);
       return entries.length > 0 ? entries[0].score : 0;
@@ -37,15 +37,17 @@ export class GameState {
   private generator: PieceGenerator;
   private scoreEngine: ScoreEngine;
   readonly config: GameConfig;
+  readonly difficulty: Difficulty;
 
-  constructor(config: GameConfig = DEFAULT_CONFIG) {
+  constructor(config: GameConfig = DEFAULT_CONFIG, difficulty: Difficulty = 'chill') {
     this.config = config;
+    this.difficulty = difficulty;
     this.board = new Board();
     this.generator = new PieceGenerator(config.generation);
     this.scoreEngine = new ScoreEngine(config.scoring, config.timer);
     this.activePieces = [null, null, null];
     this.score = 0;
-    this.highScore = readCachedTopScore();
+    this.highScore = readCachedTopScore(difficulty);
     this.streakCount = 0;
     this.movesSinceLastClear = 0;
     this.piecesPlacedInBatch = 0;
