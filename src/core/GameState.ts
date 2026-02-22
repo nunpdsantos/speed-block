@@ -1,10 +1,21 @@
 import { Board } from './Board';
 import { PieceGenerator } from './PieceGenerator';
 import { ScoreEngine } from './ScoreEngine';
-import { Leaderboard } from './Leaderboard';
 import { cellCount } from './Piece';
 import { GameConfig, DEFAULT_CONFIG } from './Config';
 import { PieceInstance, FeedbackEvent, ClearResult } from './types';
+
+/** Read the cached top score from localStorage (written by Leaderboard) */
+function readCachedTopScore(): number {
+  try {
+    const raw = localStorage.getItem('freeblock_top10');
+    if (raw) {
+      const entries = JSON.parse(raw);
+      return entries.length > 0 ? entries[0].score : 0;
+    }
+  } catch { /* */ }
+  return 0;
+}
 
 export class GameState {
   board: Board;
@@ -15,8 +26,6 @@ export class GameState {
   movesSinceLastClear: number;
   piecesPlacedInBatch: number;
   isGameOver: boolean;
-  lastRank: number | null = null;
-  leaderboard: Leaderboard;
   batchStartTime: number = 0;
 
   private generator: PieceGenerator;
@@ -28,10 +37,9 @@ export class GameState {
     this.board = new Board();
     this.generator = new PieceGenerator(config.generation);
     this.scoreEngine = new ScoreEngine(config.scoring);
-    this.leaderboard = new Leaderboard();
     this.activePieces = [null, null, null];
     this.score = 0;
-    this.highScore = this.leaderboard.getTopScore();
+    this.highScore = readCachedTopScore();
     this.streakCount = 0;
     this.movesSinceLastClear = 0;
     this.piecesPlacedInBatch = 0;
@@ -148,8 +156,6 @@ export class GameState {
     // 10. Check game over
     if (this.checkGameOver()) {
       this.isGameOver = true;
-      // Don't submit yet — GameOverScene will submit after name entry
-      this.lastRank = this.leaderboard.wouldRank(this.score) ? -1 : null;
       events.push({ type: 'gameOver', isGameOver: true });
     }
 
