@@ -14,8 +14,6 @@ export class MenuScene implements Scene {
   private height: number;
   private leaderboard: Leaderboard;
   private selectedDifficulty: Difficulty;
-  private pulseText: Text | null = null;
-  private elapsed = 0;
 
   // Rebuildable sections
   private difficultyContainer: Container | null = null;
@@ -109,33 +107,8 @@ export class MenuScene implements Scene {
     btnText.cursor = 'pointer';
     btnText.on('pointerdown', (e) => { e.stopPropagation(); this.onPlay(); });
 
-    // Tap to play hint (pulsing)
-    const hint = new Text({
-      text: 'TAP ANYWHERE',
-      style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
-        fontSize: 11,
-        fontWeight: '400',
-        fill: THEME.textMuted,
-        letterSpacing: 4,
-      }),
-    });
-    hint.anchor.set(0.5);
-    hint.x = this.width / 2;
-    hint.y = btnY + btnH + 20;
-    this.container.addChild(hint);
-    this.pulseText = hint;
-
     // Leaderboard
     this.buildLeaderboard();
-
-    // Full-screen tap handler (below everything)
-    const fullScreenHit = new Graphics();
-    fullScreenHit.rect(0, 0, this.width, this.height);
-    fullScreenHit.fill({ color: 0x000000, alpha: 0 });
-    fullScreenHit.eventMode = 'static';
-    fullScreenHit.on('pointerdown', () => this.onPlay());
-    this.container.addChildAt(fullScreenHit, 0);
   }
 
   // ── Difficulty selector ──
@@ -295,12 +268,7 @@ export class MenuScene implements Scene {
     }
   }
 
-  update(dt: number): void {
-    this.elapsed += dt;
-    if (this.pulseText) {
-      this.pulseText.alpha = 0.35 + 0.35 * Math.sin(this.elapsed * 3);
-    }
-  }
+  update(_dt: number): void {}
 
   enter(): void {}
   exit(): void {
