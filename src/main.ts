@@ -73,6 +73,7 @@ async function boot() {
       leaderboard,
       selectedDifficulty,
       () => startGame(),
+      () => showMenu(),
     );
     sceneManager.switchTo(gameOver);
   }

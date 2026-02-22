@@ -7,6 +7,7 @@ import { FONT_DISPLAY, FONT_MONO, THEME } from '../rendering/Theme';
 export class GameOverScene implements Scene {
   container: Container;
   private onReplay: () => void;
+  private onMenu: () => void;
   private score: number;
   private width: number;
   private height: number;
@@ -26,6 +27,7 @@ export class GameOverScene implements Scene {
     leaderboard: Leaderboard,
     difficulty: Difficulty,
     onReplay: () => void,
+    onMenu: () => void,
   ) {
     this.width = width;
     this.height = height;
@@ -33,6 +35,7 @@ export class GameOverScene implements Scene {
     this.leaderboard = leaderboard;
     this.difficulty = difficulty;
     this.onReplay = onReplay;
+    this.onMenu = onMenu;
     this.container = new Container();
     this.build();
   }
@@ -320,8 +323,9 @@ export class GameOverScene implements Scene {
     const btnW = 200;
     const btnH = 50;
     const btnX = this.width / 2 - btnW / 2;
-    const btnY = this.height * 0.88;
+    const btnY = this.height * 0.85;
 
+    // Play Again button
     const btn = new Graphics();
     btn.roundRect(btnX - 2, btnY - 2, btnW + 4, btnH + 4, 14);
     btn.fill({ color: THEME.accent, alpha: 0.12 });
@@ -352,6 +356,41 @@ export class GameOverScene implements Scene {
     btnText.eventMode = 'static';
     btnText.cursor = 'pointer';
     btnText.on('pointerdown', () => this.onReplay());
+
+    // Menu button
+    const menuBtnY = btnY + btnH + 12;
+    const menuBtnW = 200;
+    const menuBtnH = 44;
+    const menuBtnX = this.width / 2 - menuBtnW / 2;
+
+    const menuBtn = new Graphics();
+    menuBtn.roundRect(menuBtnX, menuBtnY, menuBtnW, menuBtnH, 10);
+    menuBtn.fill({ color: 0x4a4a6a });
+    menuBtn.roundRect(menuBtnX + 1, menuBtnY + 1, menuBtnW - 2, menuBtnH * 0.45, 9);
+    menuBtn.fill({ color: 0xffffff, alpha: 0.06 });
+    this.container.addChild(menuBtn);
+
+    const menuText = new Text({
+      text: 'MENU',
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 16,
+        fontWeight: '700',
+        fill: THEME.textSecondary,
+        letterSpacing: 4,
+      }),
+    });
+    menuText.anchor.set(0.5);
+    menuText.x = this.width / 2;
+    menuText.y = menuBtnY + menuBtnH / 2;
+    this.container.addChild(menuText);
+
+    menuBtn.eventMode = 'static';
+    menuBtn.cursor = 'pointer';
+    menuBtn.on('pointerdown', () => this.onMenu());
+    menuText.eventMode = 'static';
+    menuText.cursor = 'pointer';
+    menuText.on('pointerdown', () => this.onMenu());
   }
 
   // ── Leaderboard display ──
