@@ -1,13 +1,8 @@
-import {
-  collection, query, where, orderBy, limit,
-  getDocs, getDoc, setDoc, doc, serverTimestamp,
-} from 'firebase/firestore';
-import { db, ensureAuth } from '../firebase';
-
 const STORAGE_KEY = 'freeblock_top10';
 const NAME_KEY = 'freeblock_lastname';
+const PLAYER_ID_KEY = 'freeblock_playerid';
 const MAX_ENTRIES = 10;
-const MODE = 'freeblock';
+const API_URL = '/api/leaderboard';
 
 export interface LeaderboardEntry {
   name: string;
@@ -44,43 +39,49 @@ export class Leaderboard {
     try { localStorage.setItem(NAME_KEY, name); } catch { /* */ }
   }
 
-  /** Submit a score to Firestore. Falls back to local-only on failure. */
+  private getPlayerId(): string {
+    try {
+      let id = localStorage.getItem(PLAYER_ID_KEY);
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem(PLAYER_ID_KEY, id);
+      }
+      return id;
+    } catch {
+      return crypto.randomUUID();
+    }
+  }
+
+  /** Submit a score. Falls back to local-only on failure. */
   async submit(score: number, name: string): Promise<number | null> {
     if (score <= 0) return null;
     const cleanName = name.trim() || 'Player';
     this.saveLastName(cleanName);
 
     try {
-      const user = await ensureAuth();
-      const docId = `${user.uid}_${MODE}`;
-      const ref = doc(db, 'leaderboard', docId);
-
-      // Only write if this score is higher than the existing one
-      const existing = await getDoc(ref);
-      if (existing.exists() && existing.data().score >= score) {
-        // Existing score is equal or higher — just refresh and return rank
-        await this.fetchRemote();
-        const rank = this.entries.findIndex(e => e.score <= score);
-        return rank >= 0 && rank < MAX_ENTRIES ? rank + 1 : null;
-      }
-
-      await setDoc(ref, {
-        uid: user.uid,
-        displayName: cleanName,
-        score,
-        mode: MODE,
-        date: new Date().toISOString().split('T')[0],
-        timestamp: serverTimestamp(),
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: this.getPlayerId(),
+          name: cleanName,
+          score,
+        }),
       });
 
-      // Refresh from Firestore
-      await this.fetchRemote();
+      if (!res.ok) throw new Error('API error');
 
-      // Determine rank
-      const rank = this.entries.findIndex(e => e.score <= score);
-      return rank >= 0 && rank < MAX_ENTRIES ? rank + 1 : null;
+      const data = await res.json();
+      if (data.entries) {
+        this.entries = data.entries.map((e: Record<string, unknown>) => ({
+          name: (e.name as string) || 'Player',
+          score: e.score as number,
+          date: (e.date as string) || '',
+        }));
+        this.saveLocal();
+      }
+      return data.rank || null;
     } catch {
-      // Offline fallback
       return this.submitLocal(score, cleanName);
     }
   }
@@ -93,21 +94,14 @@ export class Leaderboard {
 
   private async fetchRemote(): Promise<void> {
     try {
-      const q = query(
-        collection(db, 'leaderboard'),
-        where('mode', '==', MODE),
-        orderBy('score', 'desc'),
-        limit(MAX_ENTRIES),
-      );
-      const snapshot = await getDocs(q);
-      this.entries = snapshot.docs.map(d => {
-        const data = d.data();
-        return {
-          name: data.displayName || 'Player',
-          score: data.score,
-          date: data.date || '',
-        };
-      });
+      const res = await fetch(API_URL);
+      if (!res.ok) throw new Error('API error');
+      const data = await res.json();
+      this.entries = data.map((e: Record<string, unknown>) => ({
+        name: (e.name as string) || 'Player',
+        score: e.score as number,
+        date: (e.date as string) || '',
+      }));
       this.saveLocal();
     } catch {
       // Offline — keep local data
