@@ -10,13 +10,13 @@ export class GameOverScene implements Scene {
   private width: number;
   private height: number;
   private leaderboard: Leaderboard;
-  private hiddenInput: HTMLInputElement | null = null;
   private nameSubmitted = false;
   private rank: number | null = null;
   private leaderboardContainer: Container | null = null;
-  private leaderboardStartY: number;
-  private cursorLine: Graphics | null = null;
-  private elapsed = 0;
+
+  // Name input group — everything related to name entry
+  private nameInputGroup: Container | null = null;
+  private htmlInput: HTMLInputElement | null = null;
 
   constructor(
     width: number, height: number,
@@ -29,7 +29,6 @@ export class GameOverScene implements Scene {
     this.score = score;
     this.leaderboard = leaderboard;
     this.onReplay = onReplay;
-    this.leaderboardStartY = this.height * 0.28;
     this.container = new Container();
     this.build();
   }
@@ -103,16 +102,22 @@ export class GameOverScene implements Scene {
     const wouldRank = this.leaderboard.wouldRank(this.score);
 
     if (wouldRank) {
-      this.showNameInput();
-    } else {
-      this.buildLeaderboard();
-      this.buildPlayAgainButton();
+      this.buildNameInput();
     }
+
+    this.buildLeaderboard();
+    this.buildPlayAgainButton();
   }
 
-  private showNameInput(): void {
+  // ── Name input ──
+
+  private buildNameInput(): void {
+    const group = new Container();
+    this.nameInputGroup = group;
+    this.container.addChild(group);
+
     const promptText = new Text({
-      text: 'NEW HIGH SCORE',
+      text: 'NEW HIGH SCORE!',
       style: new TextStyle({
         fontFamily: FONT_DISPLAY,
         fontSize: 14,
@@ -130,123 +135,25 @@ export class GameOverScene implements Scene {
     promptText.anchor.set(0.5);
     promptText.x = this.width / 2;
     promptText.y = this.height * 0.225;
-    this.container.addChild(promptText);
+    group.addChild(promptText);
 
-    // Name display — rendered in PixiJS
+    // Name field dimensions
     const nameY = this.height * 0.275;
     const fieldW = 220;
     const fieldH = 42;
     const fieldX = this.width / 2 - fieldW / 2;
     const fieldY = nameY - fieldH / 2;
 
-    // Input field background
+    // PixiJS field background (visible behind the HTML input)
     const fieldBg = new Graphics();
     fieldBg.roundRect(fieldX, fieldY, fieldW, fieldH, 8);
     fieldBg.fill({ color: 0x0c0e24, alpha: 0.95 });
     fieldBg.roundRect(fieldX, fieldY, fieldW, fieldH, 8);
     fieldBg.stroke({ color: THEME.accent, alpha: 0.6, width: 2 });
-    this.container.addChild(fieldBg);
+    group.addChild(fieldBg);
 
-    const lastName = this.leaderboard.getLastName();
-    const nameText = new Text({
-      text: lastName || '',
-      style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
-        fontSize: 18,
-        fontWeight: '600',
-        fill: THEME.textPrimary,
-        letterSpacing: 1,
-      }),
-    });
-    nameText.anchor.set(0.5);
-    nameText.x = this.width / 2;
-    nameText.y = nameY;
-    this.container.addChild(nameText);
-
-
-    // Blinking cursor
-    const cursor = new Graphics();
-    this.cursorLine = cursor;
-    this.container.addChild(cursor);
-    this.updateCursor(nameText);
-
-    // Placeholder text (shown when empty)
-    const placeholder = new Text({
-      text: 'Your name',
-      style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
-        fontSize: 18,
-        fontWeight: '400',
-        fill: THEME.textMuted,
-        letterSpacing: 1,
-      }),
-    });
-    placeholder.anchor.set(0.5);
-    placeholder.x = this.width / 2;
-    placeholder.y = nameY;
-    placeholder.visible = !lastName;
-    this.container.addChild(placeholder);
-
-    // Real HTML input overlaid on top of the PixiJS field.
-    // Must override body's touch-action:none and user-select:none
-    // which block input focus and keyboard on mobile browsers.
-    const canvas = document.querySelector('canvas')!;
-    const canvasRect = canvas.getBoundingClientRect();
-    const scaleX = canvasRect.width / this.width;
-    const scaleY = canvasRect.height / this.height;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.maxLength = 12;
-    input.value = lastName;
-    input.autocomplete = 'off';
-    input.enterKeyHint = 'done';
-    input.inputMode = 'text';
-    Object.assign(input.style, {
-      position: 'fixed',
-      left: `${canvasRect.left + fieldX * scaleX}px`,
-      top: `${canvasRect.top + fieldY * scaleY}px`,
-      width: `${fieldW * scaleX}px`,
-      height: `${fieldH * scaleY}px`,
-      fontSize: `${18 * scaleY}px`,
-      fontFamily: "'Oxanium', sans-serif",
-      textAlign: 'center',
-      color: 'white',
-      background: 'rgba(12, 14, 36, 0.95)',
-      border: '2px solid rgba(74, 144, 217, 0.6)',
-      borderRadius: '8px',
-      outline: 'none',
-      caretColor: 'white',
-      zIndex: '10000',
-      // Critical: override inherited body styles that block mobile input
-      touchAction: 'auto',
-      webkitUserSelect: 'text',
-      userSelect: 'text',
-    });
-    // Also set via setAttribute for older WebKit
-    input.setAttribute('style', input.getAttribute('style') +
-      '; -webkit-user-select: text !important; user-select: text !important;' +
-      ' -webkit-touch-callout: default !important; touch-action: auto !important;');
-    document.body.appendChild(input);
-    this.hiddenInput = input;
-
-    // Hide the PixiJS-rendered name text and cursor — the real input handles display
-    nameText.visible = false;
-    placeholder.visible = false;
-    if (this.cursorLine) this.cursorLine.visible = false;
-
-    input.addEventListener('input', () => {
-      nameText.text = input.value;
-    });
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.submitName(input.value);
-    });
-
-    // Focus with delay; use { preventScroll: true } to avoid viewport jump
-    setTimeout(() => {
-      input.focus({ preventScroll: true });
-    }, 200);
+    // HTML input overlaid on the PixiJS field
+    this.createHtmlInput(fieldX, fieldY, fieldW, fieldH);
 
     // OK button
     const btnW = 80;
@@ -259,7 +166,7 @@ export class GameOverScene implements Scene {
     btn.fill({ color: THEME.btnPrimary });
     btn.roundRect(btnX + 1, btnY + 1, btnW - 2, btnH * 0.45, 7);
     btn.fill({ color: THEME.btnHighlight, alpha: 0.12 });
-    this.container.addChild(btn);
+    group.addChild(btn);
 
     const btnText = new Text({
       text: 'OK',
@@ -274,54 +181,120 @@ export class GameOverScene implements Scene {
     btnText.anchor.set(0.5);
     btnText.x = this.width / 2;
     btnText.y = btnY + btnH / 2;
-    this.container.addChild(btnText);
+    group.addChild(btnText);
 
     btn.eventMode = 'static';
     btn.cursor = 'pointer';
     btn.on('pointerdown', (e) => {
       e.stopPropagation();
-      this.submitName(input.value);
+      this.submitName();
     });
     btnText.eventMode = 'static';
     btnText.cursor = 'pointer';
     btnText.on('pointerdown', (e) => {
       e.stopPropagation();
-      this.submitName(input.value);
+      this.submitName();
+    });
+  }
+
+  private createHtmlInput(fieldX: number, fieldY: number, fieldW: number, fieldH: number): void {
+    const canvas = document.querySelector('canvas')!;
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width / this.width;
+    const scaleY = canvasRect.height / this.height;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 12;
+    input.value = this.leaderboard.getLastName();
+    input.autocomplete = 'off';
+    input.enterKeyHint = 'done';
+    input.inputMode = 'text';
+    input.placeholder = 'Your name';
+
+    // Position over the PixiJS field
+    const left = canvasRect.left + fieldX * scaleX;
+    const top = canvasRect.top + fieldY * scaleY;
+    const width = fieldW * scaleX;
+    const height = fieldH * scaleY;
+    const fontSize = 18 * scaleY;
+
+    input.setAttribute('style', [
+      `position: fixed`,
+      `left: ${left}px`,
+      `top: ${top}px`,
+      `width: ${width}px`,
+      `height: ${height}px`,
+      `font-size: ${fontSize}px`,
+      `font-family: 'Oxanium', sans-serif`,
+      `text-align: center`,
+      `color: white`,
+      `background: transparent`,
+      `border: none`,
+      `outline: none`,
+      `caret-color: white`,
+      `z-index: 10000`,
+      `padding: 0`,
+      `margin: 0`,
+      `box-sizing: border-box`,
+      // Override inherited body styles that block mobile input
+      `-webkit-user-select: text !important`,
+      `user-select: text !important`,
+      `-webkit-touch-callout: default !important`,
+      `touch-action: auto !important`,
+    ].join('; '));
+
+    document.body.appendChild(input);
+    this.htmlInput = input;
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.submitName();
     });
 
-    this.leaderboardStartY = btnY + btnH + 20;
-    this.buildLeaderboard();
+    // Focus with delay to let the DOM settle
+    setTimeout(() => {
+      input.focus({ preventScroll: true });
+    }, 200);
   }
 
-  private updateCursor(nameText: Text): void {
-    if (!this.cursorLine) return;
-    this.cursorLine.clear();
-    const textW = nameText.width;
-    const cursorX = this.width / 2 + textW / 2 + 2;
-    const cursorY = nameText.y - 10;
-    this.cursorLine.rect(cursorX, cursorY, 2, 20);
-    this.cursorLine.fill({ color: THEME.textPrimary });
+  private removeHtmlInput(): void {
+    if (this.htmlInput) {
+      this.htmlInput.remove();
+      this.htmlInput = null;
+    }
   }
 
-  private async submitName(name: string): Promise<void> {
+  private removeNameInputGroup(): void {
+    this.removeHtmlInput();
+    if (this.nameInputGroup) {
+      this.container.removeChild(this.nameInputGroup);
+      this.nameInputGroup.destroy({ children: true });
+      this.nameInputGroup = null;
+    }
+  }
+
+  private async submitName(): Promise<void> {
     if (this.nameSubmitted) return;
     this.nameSubmitted = true;
 
-    if (this.hiddenInput) {
-      this.hiddenInput.remove();
-      this.hiddenInput = null;
-    }
+    const name = this.htmlInput?.value || '';
 
+    // Remove the entire name input area (HTML input + PixiJS group)
+    this.removeNameInputGroup();
+
+    // Submit score
     this.rank = await this.leaderboard.submit(this.score, name);
 
+    // Rebuild leaderboard with updated entries and rank highlight
     if (this.leaderboardContainer) {
       this.container.removeChild(this.leaderboardContainer);
       this.leaderboardContainer.destroy({ children: true });
       this.leaderboardContainer = null;
     }
     this.buildLeaderboard();
-    this.buildPlayAgainButton();
   }
+
+  // ── Play again button ──
 
   private buildPlayAgainButton(): void {
     const btnW = 200;
@@ -330,13 +303,10 @@ export class GameOverScene implements Scene {
     const btnY = this.height * 0.88;
 
     const btn = new Graphics();
-    // Glow
     btn.roundRect(btnX - 2, btnY - 2, btnW + 4, btnH + 4, 14);
     btn.fill({ color: THEME.accent, alpha: 0.12 });
-    // Body
     btn.roundRect(btnX, btnY, btnW, btnH, 12);
     btn.fill({ color: THEME.btnPrimary });
-    // Highlight
     btn.roundRect(btnX + 1, btnY + 1, btnW - 2, btnH * 0.45, 11);
     btn.fill({ color: THEME.btnHighlight, alpha: 0.12 });
     this.container.addChild(btn);
@@ -364,6 +334,8 @@ export class GameOverScene implements Scene {
     btnText.on('pointerdown', () => this.onReplay());
   }
 
+  // ── Leaderboard display ──
+
   private buildLeaderboard(): void {
     const entries = this.leaderboard.getEntries();
     const lbContainer = new Container();
@@ -372,7 +344,10 @@ export class GameOverScene implements Scene {
 
     if (entries.length === 0) return;
 
-    const startY = this.leaderboardStartY;
+    // Position leaderboard below the name input area if it exists, otherwise higher
+    const startY = this.nameInputGroup
+      ? this.height * 0.39
+      : this.height * 0.28;
 
     const headerText = new Text({
       text: 'LEADERBOARD',
@@ -439,20 +414,14 @@ export class GameOverScene implements Scene {
     }
   }
 
-  update(dt: number): void {
-    this.elapsed += dt;
-    // Blink cursor at ~2Hz
-    if (this.cursorLine) {
-      this.cursorLine.visible = Math.sin(this.elapsed * 6) > 0;
-    }
-  }
+  // ── Scene lifecycle ──
+
+  update(_dt: number): void {}
 
   enter(): void {}
+
   exit(): void {
-    if (this.hiddenInput) {
-      this.hiddenInput.remove();
-      this.hiddenInput = null;
-    }
+    this.removeHtmlInput();
     this.container.removeAllListeners();
   }
 }
