@@ -46,14 +46,13 @@ export interface ScoreBreakdown {
   basePoints: number;
   lineBonus: number;
   streakMultiplier: number;
-  speedMultiplier: number;
   turnScore: number;
   totalScore: number;
 }
 
 // ── Feedback event: the contract between core → rendering ──
 export interface FeedbackEvent {
-  type: 'place' | 'clear' | 'combo' | 'gameOver' | 'newBatch' | 'boardClear';
+  type: 'place' | 'clear' | 'combo' | 'gameOver' | 'newBatch' | 'boardClear' | 'timeUp';
   pieceIndex?: number;
   placedCells?: GridPos[];
   clearResult?: ClearResult;
@@ -62,6 +61,7 @@ export interface FeedbackEvent {
   isGameOver?: boolean;
   newBatch?: PieceInstance[];
   isBoardClear?: boolean;
+  timeBonus?: number;
 }
 
 // ── Color palette — bold and saturated ──

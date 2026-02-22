@@ -107,12 +107,24 @@ export class GameScene implements Scene {
   update(dt: number): void {
     if (this.paused) return;
     this.animationManager.update(dt);
-    this.uiRenderer.updateSpeedMultiplier(this.gameState.speedMultiplier, this.gameState.speedStreak, dt);
+
+    // Tick the timer down
+    const timeUp = this.gameState.tick(dt);
+    if (timeUp) {
+      this.audioManager.playGameOver();
+      setTimeout(() => {
+        this.onGameOver(this.gameState.score);
+      }, 800);
+      return;
+    }
+
+    // Update timer bar
+    this.uiRenderer.updateTimer(this.gameState.timeRemaining, this.gameState.maxTime, dt);
   }
 
   // ── Pause button ──
 
-  private buildPauseButton(screenW: number): void {
+  private buildPauseButton(_screenW: number): void {
     const btn = new Container();
     const size = 36;
     const x = 10;
@@ -159,10 +171,6 @@ export class GameScene implements Scene {
 
   private resume(): void {
     if (!this.paused) return;
-    // Compensate speed timers for paused duration
-    const pausedMs = Date.now() - this.pauseStartTime;
-    this.gameState.batchStartTime += pausedMs;
-    this.gameState.lastPlaceTime += pausedMs;
     this.paused = false;
     this.dragController.attach(this.canvas);
     this.removePauseOverlay();
@@ -342,17 +350,13 @@ export class GameScene implements Scene {
     };
   }
 
-  private showSpeedPopup(speedMultiplier: number): void {
-    if (speedMultiplier <= 1.05) return;
-    const pct = Math.round((speedMultiplier - 1) * 100);
-    let label: string;
-    if (speedMultiplier >= 4.0) {
-      label = `BLAZING +${pct}%`;
-    } else if (speedMultiplier >= 2.5) {
-      label = `LIGHTNING +${pct}%`;
-    } else {
-      label = `SPEED +${pct}%`;
-    }
+  // ── Time bonus popup ──
+
+  private showTimeBonusPopup(timeBonus: number, linesCleared: number): void {
+    if (timeBonus <= 0) return;
+    // Only show popup for significant time bonuses (clears)
+    if (linesCleared <= 0) return;
+    const label = `+${timeBonus}s`;
     this.animationManager.showStreakPopup(0, label);
   }
 
@@ -382,7 +386,9 @@ export class GameScene implements Scene {
               layout.gridOriginY + layout.gridSize / 2,
               false,
             );
-            this.showSpeedPopup(event.scoreBreakdown.speedMultiplier);
+          }
+          if (event.timeBonus && event.clearResult) {
+            this.showTimeBonusPopup(event.timeBonus, event.clearResult.totalLinesCleared);
           }
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
           this.uiRenderer.updateScore(this.gameState.score);
@@ -405,7 +411,9 @@ export class GameScene implements Scene {
               layout.gridOriginY + layout.gridSize / 2,
               true,
             );
-            this.showSpeedPopup(event.scoreBreakdown.speedMultiplier);
+          }
+          if (event.timeBonus && event.clearResult) {
+            this.showTimeBonusPopup(event.timeBonus, event.clearResult.totalLinesCleared);
           }
           this.animationManager.showStreakPopup(this.gameState.streakCount);
           this.gridRenderer.drawBlocks(this.gameState.board.grid);

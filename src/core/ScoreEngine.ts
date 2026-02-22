@@ -1,53 +1,27 @@
-import { ScoringConfig } from './Config';
+import { ScoringConfig, TimerConfig } from './Config';
 import { ClearResult, ScoreBreakdown } from './types';
 
 export class ScoreEngine {
-  private config: ScoringConfig;
+  private scoring: ScoringConfig;
+  private timer: TimerConfig;
 
-  constructor(config: ScoringConfig) {
-    this.config = config;
+  constructor(scoring: ScoringConfig, timer: TimerConfig) {
+    this.scoring = scoring;
+    this.timer = timer;
   }
 
-  /** Calculate speed multiplier based on elapsed seconds since last piece placement */
-  getSpeedMultiplier(elapsedSeconds: number): number {
-    const cfg = this.config;
-    return Math.max(
-      cfg.speedBonusMinMultiplier,
-      cfg.speedBonusMaxMultiplier - elapsedSeconds * cfg.speedBonusDecayPerSecond,
-    );
-  }
-
-  /** Get the total speed multiplier including speed streak bonus */
-  getTotalSpeedMultiplier(elapsedSeconds: number, speedStreak: number): number {
-    const base = this.getSpeedMultiplier(elapsedSeconds);
-    const streakBonus = Math.min(
-      speedStreak * this.config.speedStreakBonus,
-      this.config.speedStreakCap,
-    );
-    return base + streakBonus;
-  }
-
-  /** Check if a placement time qualifies as "fast" */
-  isFastPlacement(elapsedSeconds: number): boolean {
-    return elapsedSeconds < this.config.speedStreakThreshold;
-  }
-
-  /** Calculate score for a single turn */
+  /** Calculate score for a single turn (clears only — no placement points) */
   calculate(
     clearResult: ClearResult,
-    placedCellCount: number,
     streakCount: number,
     isBoardClear: boolean,
-    elapsedSeconds: number,
-    speedStreak: number,
   ): ScoreBreakdown {
-    const cfg = this.config;
+    const cfg = this.scoring;
 
-    // Base points: per-block destroyed + per-line cleared + placement bonus
+    // Base points: per-block destroyed + per-line cleared
     const blockPoints = clearResult.totalCellsRemoved * cfg.pointsPerBlockCleared;
     const linePoints = clearResult.totalLinesCleared * cfg.pointsPerLineCleared;
-    const placementPoints = placedCellCount * cfg.placementPointsPerCell;
-    const basePoints = blockPoints + linePoints + placementPoints;
+    const basePoints = blockPoints + linePoints;
 
     // Line bonus: combo bonus for simultaneous multi-line clears
     let lineBonus = 0;
@@ -69,26 +43,49 @@ export class ScoreEngine {
       cfg.streakMultiplierCap,
     );
 
-    // Speed multiplier (base + speed streak bonus, only when lines are cleared)
-    const speedMultiplier = clearResult.totalLinesCleared > 0
-      ? this.getTotalSpeedMultiplier(elapsedSeconds, speedStreak)
-      : 1.0;
-
-    // Final score
+    // Final score (no speed multiplier — timer is the pressure now)
     let turnScore: number;
     if (cfg.streakBonusAppliesTo === 'base+combo') {
-      turnScore = Math.floor((basePoints + lineBonus) * streakMultiplier * speedMultiplier);
+      turnScore = Math.floor((basePoints + lineBonus) * streakMultiplier);
     } else {
-      turnScore = Math.floor(basePoints * streakMultiplier * speedMultiplier) + lineBonus;
+      turnScore = Math.floor(basePoints * streakMultiplier) + lineBonus;
     }
 
     return {
       basePoints,
       lineBonus,
       streakMultiplier,
-      speedMultiplier,
       turnScore,
       totalScore: 0, // filled by GameState
     };
+  }
+
+  /** Calculate time bonus for a placement + clear */
+  calculateTimeBonus(
+    linesCleared: number,
+    isBoardClear: boolean,
+    streakCount: number,
+  ): number {
+    const cfg = this.timer;
+    let bonus = cfg.piecePlaceBonus;
+
+    if (linesCleared === 1) {
+      bonus += cfg.clear1LineBonus;
+    } else if (linesCleared === 2) {
+      bonus += cfg.clear2LineBonus;
+    } else if (linesCleared >= 3) {
+      bonus += cfg.clear3PlusLineBonus;
+    }
+
+    if (isBoardClear) {
+      bonus += cfg.boardClearBonus;
+    }
+
+    // Streak bonus: extra time per streak level
+    if (linesCleared > 0 && streakCount > 0) {
+      bonus += streakCount * cfg.streakBonusPerLevel;
+    }
+
+    return bonus;
   }
 }

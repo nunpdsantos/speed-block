@@ -1,7 +1,6 @@
 export interface ScoringConfig {
   pointsPerBlockCleared: number;
   pointsPerLineCleared: number;
-  placementPointsPerCell: number;
   comboBaseBonus: number;
   comboBonusPerExtraLine: number;
   comboBonusCap: number;
@@ -11,14 +10,17 @@ export interface ScoringConfig {
   comboWindowPlacements: number;
   boardClearBonus: number;
   streakBonusAppliesTo: 'base+combo' | 'base_only';
-  // Speed bonus: the faster you place, the more points
-  speedBonusMaxMultiplier: number;   // e.g. 4.0 = up to 4x at instant speed
-  speedBonusDecayPerSecond: number;  // how fast the multiplier decays toward min
-  speedBonusMinMultiplier: number;   // floor (typically 1.0 = no penalty for slow)
-  // Speed streak: consecutive fast placements compound
-  speedStreakThreshold: number;      // seconds — placement faster than this counts as "fast"
-  speedStreakBonus: number;          // extra multiplier added per consecutive fast placement
-  speedStreakCap: number;            // max extra multiplier from speed streak
+}
+
+export interface TimerConfig {
+  startSeconds: number;          // initial time bank
+  maxSeconds: number;            // cap so timer can't grow forever
+  piecePlaceBonus: number;       // seconds added per piece placed
+  clear1LineBonus: number;       // seconds added for clearing 1 line
+  clear2LineBonus: number;       // seconds added for clearing 2 lines simultaneously
+  clear3PlusLineBonus: number;   // seconds added for clearing 3+ lines
+  boardClearBonus: number;       // seconds added for clearing the entire board
+  streakBonusPerLevel: number;   // extra seconds per streak level on a clear
 }
 
 export interface GenerationConfig {
@@ -28,6 +30,7 @@ export interface GenerationConfig {
 
 export interface GameConfig {
   scoring: ScoringConfig;
+  timer: TimerConfig;
   generation: GenerationConfig;
 }
 
@@ -35,7 +38,6 @@ export const DEFAULT_CONFIG: GameConfig = {
   scoring: {
     pointsPerBlockCleared: 10,
     pointsPerLineCleared: 0,
-    placementPointsPerCell: 0,
     comboBaseBonus: 20,
     comboBonusPerExtraLine: 10,
     comboBonusCap: 100,
@@ -45,12 +47,16 @@ export const DEFAULT_CONFIG: GameConfig = {
     comboWindowPlacements: 3,
     boardClearBonus: 500,
     streakBonusAppliesTo: 'base+combo',
-    speedBonusMaxMultiplier: 4.0,
-    speedBonusDecayPerSecond: 0.375,  // 4.0 → 1.0 over 8 seconds
-    speedBonusMinMultiplier: 1.0,
-    speedStreakThreshold: 4,          // under 4s = "fast" placement
-    speedStreakBonus: 0.5,            // +0.5x per consecutive fast placement
-    speedStreakCap: 2.0,              // max +2.0x from speed streak (so 4x + 2x = 6x theoretical max)
+  },
+  timer: {
+    startSeconds: 60,
+    maxSeconds: 90,
+    piecePlaceBonus: 3,
+    clear1LineBonus: 4,
+    clear2LineBonus: 7,
+    clear3PlusLineBonus: 10,
+    boardClearBonus: 15,
+    streakBonusPerLevel: 1,
   },
   generation: {
     ensureLegalPlacement: true,
