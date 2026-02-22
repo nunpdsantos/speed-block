@@ -103,7 +103,14 @@ export class DragController {
   }
 
   private handlePointerDown = (e: PointerEvent): void => {
-    if (!this.active || this.dragging) return;
+    if (!this.active) return;
+    // If a previous drag got stuck (missed pointerup/pointercancel), force-cancel it
+    if (this.dragging) {
+      this.dragging = null;
+      this.onDragCancel();
+      this.pointerDownPos = null;
+      this.pointerDownPieceIndex = -1;
+    }
     e.preventDefault();
     try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
 

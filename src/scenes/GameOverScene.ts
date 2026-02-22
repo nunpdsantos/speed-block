@@ -187,44 +187,55 @@ export class GameOverScene implements Scene {
     placeholder.visible = !lastName;
     this.container.addChild(placeholder);
 
-    // Hidden input for keyboard capture — appended to body with fixed positioning
+    // Real HTML input overlaid on top of the PixiJS field.
+    // Must be visible and properly sized for mobile keyboards to appear.
+    const canvas = document.querySelector('canvas')!;
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width / this.width;
+    const scaleY = canvasRect.height / this.height;
+
     const input = document.createElement('input');
     input.type = 'text';
     input.maxLength = 12;
     input.value = lastName;
     input.autocomplete = 'off';
+    input.enterKeyHint = 'done';
     Object.assign(input.style, {
       position: 'fixed',
-      opacity: '0',
-      width: '1px',
-      height: '1px',
-      left: '0',
-      top: '0',
-      pointerEvents: 'none',
+      left: `${canvasRect.left + fieldX * scaleX}px`,
+      top: `${canvasRect.top + fieldY * scaleY}px`,
+      width: `${fieldW * scaleX}px`,
+      height: `${fieldH * scaleY}px`,
+      fontSize: `${18 * scaleY}px`,
+      fontFamily: 'inherit',
+      textAlign: 'center',
+      color: 'white',
+      background: 'transparent',
+      border: 'none',
+      outline: 'none',
+      caretColor: 'white',
+      zIndex: '1000',
+      touchAction: 'manipulation',
     });
     document.body.appendChild(input);
     this.hiddenInput = input;
 
-    // Sync hidden input → PixiJS display
+    // Hide the PixiJS-rendered name text and cursor — the real input is visible now
+    nameText.visible = false;
+    placeholder.visible = false;
+    if (this.cursorLine) this.cursorLine.visible = false;
+
     input.addEventListener('input', () => {
+      // Keep PixiJS text in sync (used if input is removed before submission)
       nameText.text = input.value;
-      placeholder.visible = input.value.length === 0;
-      this.updateCursor(nameText);
     });
 
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.submitName(input.value);
     });
 
-    // Tap the field to focus the hidden input
-    fieldBg.eventMode = 'static';
-    fieldBg.cursor = 'pointer';
-    fieldBg.on('pointerdown', (e) => {
-      e.stopPropagation();
-      input.focus();
-    });
-
-    setTimeout(() => input.focus(), 100);
+    // Focus after a short delay to ensure DOM is ready
+    setTimeout(() => input.focus(), 150);
 
     // OK button
     const btnW = 80;
