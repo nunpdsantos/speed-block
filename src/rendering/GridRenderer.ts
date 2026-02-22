@@ -93,9 +93,6 @@ export class GridRenderer {
         }
       }
     }
-
-    // Draw flash overlay for recently placed cells
-    this.drawFlashOverlay();
   }
 
   /** Mark cells to flash white on placement */
@@ -105,16 +102,22 @@ export class GridRenderer {
     }
   }
 
-  private drawFlashOverlay(): void {
+  /** Update placement flash overlay — call every frame */
+  updateFlash(dt: number): void {
     const g = this.flashGraphics;
     g.clear();
     if (this.flashCellMap.size === 0) return;
+    if (!this.layout) return;
 
     const { gridOriginX, gridOriginY, cellSize } = this.layout;
     const toRemove: string[] = [];
 
     this.flashCellMap.forEach((time, key) => {
-      if (time <= 0) {
+      // Decrement timer
+      const remaining = time - dt;
+      this.flashCellMap.set(key, remaining);
+
+      if (remaining <= 0) {
         toRemove.push(key);
         return;
       }
@@ -122,7 +125,7 @@ export class GridRenderer {
       const x = gridOriginX + c * cellSize + BLOCK_INSET;
       const y = gridOriginY + r * cellSize + BLOCK_INSET;
       const size = cellSize - BLOCK_INSET * 2;
-      const alpha = Math.min(1, time / 0.03); // fade out
+      const alpha = Math.min(1, remaining / 0.03); // fade out
       g.roundRect(x, y, size, size, CELL_RADIUS);
       g.fill({ color: 0xffffff, alpha: alpha * 0.6 });
     });
@@ -130,12 +133,6 @@ export class GridRenderer {
     for (const key of toRemove) {
       this.flashCellMap.delete(key);
     }
-
-    // Decrement flash timers (called from update cycle via drawBlocks)
-    // We do a rough 16ms decrement since drawBlocks is called per-frame
-    this.flashCellMap.forEach((time, key) => {
-      this.flashCellMap.set(key, time - 0.016);
-    });
   }
 
   /** Update grid border heartbeat glow */

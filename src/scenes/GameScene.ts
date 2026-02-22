@@ -222,6 +222,9 @@ export class GameScene implements Scene {
     // Grid border heartbeat
     this.gridRenderer.updateGlow(dt, this.gameState.timeRemaining);
 
+    // Placement flash (must run every frame to decay)
+    this.gridRenderer.updateFlash(dt);
+
     // Near-miss highlight
     this.gridRenderer.updateNearMiss(this.gameState.board);
 
