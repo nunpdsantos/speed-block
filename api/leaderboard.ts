@@ -69,10 +69,17 @@ export default async function handler(request: Request): Promise<Response> {
 
     const existingIdx = entries.findIndex(e => e.id === id);
     if (existingIdx >= 0) {
-      if (entries[existingIdx].score >= score) {
-        const rank = entries.findIndex(e => e.score <= score);
-        return new Response(JSON.stringify({ rank: rank >= 0 ? rank + 1 : null, entries }), { headers });
+      if (entries[existingIdx].score > score) {
+        // New score is strictly lower — keep old entry, return its rank
+        return new Response(JSON.stringify({ rank: existingIdx + 1, entries }), { headers });
       }
+      if (entries[existingIdx].score === score) {
+        // Same score — update name in place, persist, return rank
+        entries[existingIdx].name = name.trim().slice(0, 12) || 'Player';
+        await saveEntries(difficulty, entries);
+        return new Response(JSON.stringify({ rank: existingIdx + 1, entries }), { headers });
+      }
+      // New score is higher — remove old entry to re-insert at correct position
       entries.splice(existingIdx, 1);
     }
 

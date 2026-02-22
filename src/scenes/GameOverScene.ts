@@ -38,6 +38,11 @@ export class GameOverScene implements Scene {
     this.onReplay = onReplay;
     this.onMenu = onMenu;
     this.container = new Container();
+    this.init();
+  }
+
+  private async init(): Promise<void> {
+    await this.leaderboard.waitForRemote();
     this.build();
   }
 

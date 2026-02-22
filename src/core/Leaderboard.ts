@@ -10,6 +10,7 @@ function storageKey(difficulty: Difficulty): string {
 }
 
 export interface LeaderboardEntry {
+  id?: string;
   name: string;
   score: number;
   date: string;
@@ -94,6 +95,7 @@ export class Leaderboard {
       const data = await res.json();
       if (data.entries && Array.isArray(data.entries)) {
         this.entries = data.entries.map((e: Record<string, unknown>) => ({
+          id: (e.id as string) || undefined,
           name: (e.name as string) || 'Player',
           score: e.score as number,
           date: (e.date as string) || '',
@@ -108,6 +110,17 @@ export class Leaderboard {
 
   wouldRank(score: number): boolean {
     if (score <= 0) return false;
+    const playerId = this.getPlayerId();
+    const existingIdx = this.entries.findIndex(e => e.id === playerId);
+
+    if (existingIdx >= 0) {
+      // Player already on board — server rejects scores <= existing
+      if (score <= this.entries[existingIdx].score) return false;
+      // Beating own score replaces the entry — always ranks
+      return true;
+    }
+
+    // No existing entry — standard check
     if (this.entries.length < MAX_ENTRIES) return true;
     return score > this.entries[this.entries.length - 1].score;
   }
@@ -121,6 +134,7 @@ export class Leaderboard {
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error('Invalid data');
       this.entries = data.map((e: Record<string, unknown>) => ({
+        id: (e.id as string) || undefined,
         name: (e.name as string) || 'Player',
         score: e.score as number,
         date: (e.date as string) || '',
