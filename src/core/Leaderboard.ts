@@ -1,6 +1,6 @@
 import {
   collection, query, where, orderBy, limit,
-  getDocs, setDoc, doc, serverTimestamp,
+  getDocs, getDoc, setDoc, doc, serverTimestamp,
 } from 'firebase/firestore';
 import { db, ensureAuth } from '../firebase';
 
@@ -54,6 +54,15 @@ export class Leaderboard {
       const user = await ensureAuth();
       const docId = `${user.uid}_${MODE}`;
       const ref = doc(db, 'leaderboard', docId);
+
+      // Only write if this score is higher than the existing one
+      const existing = await getDoc(ref);
+      if (existing.exists() && existing.data().score >= score) {
+        // Existing score is equal or higher — just refresh and return rank
+        await this.fetchRemote();
+        const rank = this.entries.findIndex(e => e.score <= score);
+        return rank >= 0 && rank < MAX_ENTRIES ? rank + 1 : null;
+      }
 
       await setDoc(ref, {
         uid: user.uid,

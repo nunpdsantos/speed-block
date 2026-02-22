@@ -188,7 +188,8 @@ export class GameOverScene implements Scene {
     this.container.addChild(placeholder);
 
     // Real HTML input overlaid on top of the PixiJS field.
-    // Must be visible and properly sized for mobile keyboards to appear.
+    // Must override body's touch-action:none and user-select:none
+    // which block input focus and keyboard on mobile browsers.
     const canvas = document.querySelector('canvas')!;
     const canvasRect = canvas.getBoundingClientRect();
     const scaleX = canvasRect.width / this.width;
@@ -200,6 +201,7 @@ export class GameOverScene implements Scene {
     input.value = lastName;
     input.autocomplete = 'off';
     input.enterKeyHint = 'done';
+    input.inputMode = 'text';
     Object.assign(input.style, {
       position: 'fixed',
       left: `${canvasRect.left + fieldX * scaleX}px`,
@@ -207,26 +209,33 @@ export class GameOverScene implements Scene {
       width: `${fieldW * scaleX}px`,
       height: `${fieldH * scaleY}px`,
       fontSize: `${18 * scaleY}px`,
-      fontFamily: 'inherit',
+      fontFamily: "'Oxanium', sans-serif",
       textAlign: 'center',
       color: 'white',
-      background: 'transparent',
-      border: 'none',
+      background: 'rgba(12, 14, 36, 0.95)',
+      border: '2px solid rgba(74, 144, 217, 0.6)',
+      borderRadius: '8px',
       outline: 'none',
       caretColor: 'white',
-      zIndex: '1000',
-      touchAction: 'manipulation',
+      zIndex: '10000',
+      // Critical: override inherited body styles that block mobile input
+      touchAction: 'auto',
+      webkitUserSelect: 'text',
+      userSelect: 'text',
     });
+    // Also set via setAttribute for older WebKit
+    input.setAttribute('style', input.getAttribute('style') +
+      '; -webkit-user-select: text !important; user-select: text !important;' +
+      ' -webkit-touch-callout: default !important; touch-action: auto !important;');
     document.body.appendChild(input);
     this.hiddenInput = input;
 
-    // Hide the PixiJS-rendered name text and cursor — the real input is visible now
+    // Hide the PixiJS-rendered name text and cursor — the real input handles display
     nameText.visible = false;
     placeholder.visible = false;
     if (this.cursorLine) this.cursorLine.visible = false;
 
     input.addEventListener('input', () => {
-      // Keep PixiJS text in sync (used if input is removed before submission)
       nameText.text = input.value;
     });
 
@@ -234,8 +243,10 @@ export class GameOverScene implements Scene {
       if (e.key === 'Enter') this.submitName(input.value);
     });
 
-    // Focus after a short delay to ensure DOM is ready
-    setTimeout(() => input.focus(), 150);
+    // Focus with delay; use { preventScroll: true } to avoid viewport jump
+    setTimeout(() => {
+      input.focus({ preventScroll: true });
+    }, 200);
 
     // OK button
     const btnW = 80;
