@@ -20,6 +20,7 @@ export class GameOverScene implements Scene {
   // Name input group — everything related to name entry
   private nameInputGroup: Container | null = null;
   private htmlInput: HTMLInputElement | null = null;
+  private htmlButton: HTMLButtonElement | null = null;
 
   constructor(
     width: number, height: number,
@@ -175,49 +176,8 @@ export class GameOverScene implements Scene {
     fieldBg.stroke({ color: THEME.accent, alpha: 0.6, width: 2 });
     group.addChild(fieldBg);
 
-    // HTML input overlaid on the PixiJS field
+    // HTML input + OK button overlaid on the PixiJS field
     this.createHtmlInput(fieldX, fieldY, fieldW, fieldH);
-
-    // OK button
-    const btnW = 80;
-    const btnH = 36;
-    const btnX = this.width / 2 - btnW / 2;
-    const btnY = fieldY + fieldH + 14;
-
-    const btn = new Graphics();
-    btn.roundRect(btnX, btnY, btnW, btnH, 8);
-    btn.fill({ color: THEME.btnPrimary });
-    btn.roundRect(btnX + 1, btnY + 1, btnW - 2, btnH * 0.45, 7);
-    btn.fill({ color: THEME.btnHighlight, alpha: 0.12 });
-    group.addChild(btn);
-
-    const btnText = new Text({
-      text: 'OK',
-      style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
-        fontSize: 16,
-        fontWeight: '700',
-        fill: THEME.textPrimary,
-        letterSpacing: 2,
-      }),
-    });
-    btnText.anchor.set(0.5);
-    btnText.x = this.width / 2;
-    btnText.y = btnY + btnH / 2;
-    group.addChild(btnText);
-
-    btn.eventMode = 'static';
-    btn.cursor = 'pointer';
-    btn.on('pointerdown', (e) => {
-      e.stopPropagation();
-      this.submitName();
-    });
-    btnText.eventMode = 'static';
-    btnText.cursor = 'pointer';
-    btnText.on('pointerdown', (e) => {
-      e.stopPropagation();
-      this.submitName();
-    });
   }
 
   private createHtmlInput(fieldX: number, fieldY: number, fieldW: number, fieldH: number): void {
@@ -260,7 +220,6 @@ export class GameOverScene implements Scene {
       `padding: 0`,
       `margin: 0`,
       `box-sizing: border-box`,
-      // Override inherited body styles that block mobile input
       `-webkit-user-select: text !important`,
       `user-select: text !important`,
       `-webkit-touch-callout: default !important`,
@@ -270,11 +229,53 @@ export class GameOverScene implements Scene {
     document.body.appendChild(input);
     this.htmlInput = input;
 
-    input.addEventListener('keydown', (e) => {
+    input.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key === 'Enter') this.submitName();
     });
 
-    // Focus with delay to let the DOM settle
+    // HTML OK button — real DOM element so it works reliably on all devices
+    const btnW = 80;
+    const btnH = 36;
+    const btnLeft = canvasRect.left + (this.width / 2 - btnW / 2) * scaleX;
+    const btnTop = top + height + 14 * scaleY;
+    const btnWidth = btnW * scaleX;
+    const btnHeight = btnH * scaleY;
+    const btnFontSize = 16 * scaleY;
+
+    const btn = document.createElement('button');
+    btn.textContent = 'OK';
+    btn.setAttribute('style', [
+      `position: fixed`,
+      `left: ${btnLeft}px`,
+      `top: ${btnTop}px`,
+      `width: ${btnWidth}px`,
+      `height: ${btnHeight}px`,
+      `font-size: ${btnFontSize}px`,
+      `font-family: 'Oxanium', sans-serif`,
+      `font-weight: 700`,
+      `letter-spacing: 2px`,
+      `color: white`,
+      `background: #4a6cf7`,
+      `border: none`,
+      `border-radius: ${8 * scaleY}px`,
+      `cursor: pointer`,
+      `z-index: 10000`,
+      `padding: 0`,
+      `margin: 0`,
+      `touch-action: manipulation`,
+      `-webkit-tap-highlight-color: transparent`,
+    ].join('; '));
+
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.submitName();
+    });
+
+    document.body.appendChild(btn);
+    this.htmlButton = btn;
+
+    // Focus input with delay to let the DOM settle
     setTimeout(() => {
       input.focus({ preventScroll: true });
     }, 200);
@@ -284,6 +285,10 @@ export class GameOverScene implements Scene {
     if (this.htmlInput) {
       this.htmlInput.remove();
       this.htmlInput = null;
+    }
+    if (this.htmlButton) {
+      this.htmlButton.remove();
+      this.htmlButton = null;
     }
   }
 
