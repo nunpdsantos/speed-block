@@ -169,7 +169,11 @@ export class GameScene implements Scene {
 
   private quit(): void {
     this.removePauseOverlay();
-    this.onQuit();
+    if (this.gameState.score > 0) {
+      this.onGameOver(this.gameState.score);
+    } else {
+      this.onQuit();
+    }
   }
 
   private buildPauseOverlay(): void {
