@@ -120,10 +120,10 @@ export class GameScene implements Scene {
     // Update timer bar
     this.uiRenderer.updateTimer(this.gameState.timeRemaining, this.gameState.maxTime, dt);
 
-    // Update speed multiplier display
-    this.uiRenderer.updateSpeed(
-      this.gameState.currentSpeedMultiplier,
-      this.gameState.config.speed.decayWindowSeconds,
+    // Update speed-time bar
+    this.uiRenderer.updateSpeedBar(
+      this.gameState.currentSpeedFraction,
+      this.gameState.config.timer.speedWindowSeconds,
       this.gameState.pieceElapsed,
     );
   }
@@ -357,12 +357,19 @@ export class GameScene implements Scene {
 
   // ── Time bonus popup ──
 
-  private showTimeBonusPopup(timeBonus: number, linesCleared: number): void {
+  private showTimeBonusPopup(timeBonus: number, big: boolean = false): void {
     if (timeBonus <= 0) return;
-    // Only show popup for significant time bonuses (clears)
-    if (linesCleared <= 0) return;
-    const label = `+${timeBonus}s`;
-    this.animationManager.showStreakPopup(0, label);
+    const label = `+${timeBonus.toFixed(1)}s`;
+    if (big) {
+      this.animationManager.showStreakPopup(0, label);
+    } else {
+      const layout = this.layoutManager.layout;
+      this.animationManager.showTimeBonusPopup(
+        label,
+        layout.gridOriginX + layout.gridSize / 2,
+        layout.gridOriginY - 20,
+      );
+    }
   }
 
   // ── Feedback processing ──
@@ -373,6 +380,9 @@ export class GameScene implements Scene {
         case 'place':
           this.audioManager.playPlace();
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
+          if (event.timeBonus) {
+            this.showTimeBonusPopup(event.timeBonus);
+          }
           break;
 
         case 'clear':
@@ -392,8 +402,8 @@ export class GameScene implements Scene {
               false,
             );
           }
-          if (event.timeBonus && event.clearResult) {
-            this.showTimeBonusPopup(event.timeBonus, event.clearResult.totalLinesCleared);
+          if (event.timeBonus) {
+            this.showTimeBonusPopup(event.timeBonus, true);
           }
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
           this.uiRenderer.updateScore(this.gameState.score);
@@ -417,8 +427,8 @@ export class GameScene implements Scene {
               true,
             );
           }
-          if (event.timeBonus && event.clearResult) {
-            this.showTimeBonusPopup(event.timeBonus, event.clearResult.totalLinesCleared);
+          if (event.timeBonus) {
+            this.showTimeBonusPopup(event.timeBonus, true);
           }
           this.animationManager.showStreakPopup(this.gameState.streakCount);
           this.gridRenderer.drawBlocks(this.gameState.board.grid);

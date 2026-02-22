@@ -27,10 +27,12 @@ export class GameState {
   isGameOver: boolean;
   /** Time remaining in seconds */
   timeRemaining: number = 0;
-  /** Seconds elapsed since last piece placement (for speed multiplier) */
+  /** Seconds elapsed since last piece placement (for speed-time scaling) */
   pieceElapsed: number = 0;
-  /** Current speed multiplier snapshot (set at moment of placement) */
-  lastSpeedMultiplier: number = 1;
+  /** Total seconds played (for drain acceleration) */
+  gameElapsed: number = 0;
+  /** Current drain rate multiplier */
+  drainRate: number = 1;
 
   private generator: PieceGenerator;
   private scoreEngine: ScoreEngine;
@@ -40,7 +42,7 @@ export class GameState {
     this.config = config;
     this.board = new Board();
     this.generator = new PieceGenerator(config.generation);
-    this.scoreEngine = new ScoreEngine(config.scoring, config.timer, config.speed);
+    this.scoreEngine = new ScoreEngine(config.scoring, config.timer);
     this.activePieces = [null, null, null];
     this.score = 0;
     this.highScore = readCachedTopScore();
@@ -54,6 +56,11 @@ export class GameState {
     return this.config.timer.maxSeconds;
   }
 
+  /** Current speed fraction (live, for UI display): 1.0 = instant, min = slow */
+  get currentSpeedFraction(): number {
+    return this.scoreEngine.getSpeedFraction(this.pieceElapsed);
+  }
+
   /** Start a new game */
   start(): FeedbackEvent {
     this.board.reset();
@@ -64,22 +71,24 @@ export class GameState {
     this.isGameOver = false;
     this.timeRemaining = this.config.timer.startSeconds;
     this.pieceElapsed = 0;
-    this.lastSpeedMultiplier = 1;
+    this.gameElapsed = 0;
+    this.drainRate = 1;
     const batch = this.generator.generateBatch(this.board);
     this.activePieces = [...batch];
     return { type: 'newBatch', newBatch: batch };
   }
 
-  /** Get current speed multiplier (live, for UI display) */
-  get currentSpeedMultiplier(): number {
-    return this.scoreEngine.getSpeedMultiplier(this.pieceElapsed);
-  }
-
-  /** Tick the timer down. Returns true if time ran out. */
+  /** Tick the timer down with accelerating drain. Returns true if time ran out. */
   tick(dt: number): boolean {
     if (this.isGameOver) return false;
+
     this.pieceElapsed += dt;
-    this.timeRemaining = Math.max(0, this.timeRemaining - dt);
+    this.gameElapsed += dt;
+
+    // Accelerating drain
+    this.drainRate = 1 + (this.gameElapsed / 60) * this.config.timer.drainAccelPerMinute;
+    this.timeRemaining = Math.max(0, this.timeRemaining - dt * this.drainRate);
+
     if (this.timeRemaining <= 0) {
       this.isGameOver = true;
       return true;
@@ -131,26 +140,25 @@ export class GameState {
       }
     }
 
-    // 7. Calculate time bonus and add to bank
+    // 7. Snapshot speed fraction and reset piece timer
+    const speedFraction = this.scoreEngine.getSpeedFraction(this.pieceElapsed);
+    this.pieceElapsed = 0;
+
+    // 8. Calculate time bonus scaled by speed, add to bank
     const timeBonus = this.scoreEngine.calculateTimeBonus(
       clearResult.totalLinesCleared,
       isBoardClear,
       this.streakCount,
+      speedFraction,
     );
     this.addTime(timeBonus);
 
-    // 8. Snapshot speed multiplier and reset piece timer
-    const speedMult = this.scoreEngine.getSpeedMultiplier(this.pieceElapsed);
-    this.lastSpeedMultiplier = speedMult;
-    this.pieceElapsed = 0;
-
-    // 9. Compute score (clears only)
+    // 9. Compute score (clears only — no speed multiplier)
     if (clearResult.totalLinesCleared > 0) {
       const breakdown = this.scoreEngine.calculate(
         clearResult,
         this.streakCount,
         isBoardClear,
-        speedMult,
       );
       this.score += breakdown.turnScore;
       breakdown.totalScore = this.score;

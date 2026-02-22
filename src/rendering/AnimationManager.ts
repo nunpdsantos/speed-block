@@ -141,6 +141,29 @@ export class AnimationManager {
     this.popups.push({ text, startY: text.y, life: 0, maxLife: 1.3 });
   }
 
+  /** Show a small time bonus popup near the timer area */
+  showTimeBonusPopup(label: string, x: number, y: number): void {
+    const style = new TextStyle({
+      fontFamily: FONT_MONO,
+      fontSize: 16,
+      fontWeight: '400',
+      fill: 0x20bf6b,
+      letterSpacing: 1,
+      dropShadow: {
+        alpha: 0.5,
+        blur: 6,
+        color: 0x20bf6b,
+        distance: 0,
+      },
+    });
+    const text = new Text({ text: label, style });
+    text.anchor.set(0.5);
+    text.x = x;
+    text.y = y;
+    this.container.addChild(text);
+    this.popups.push({ text, startY: y, life: 0, maxLife: 0.6 });
+  }
+
   /** Update all animations. Called every frame with delta in seconds. */
   update(dt: number): void {
     const g = this.particleGraphics;

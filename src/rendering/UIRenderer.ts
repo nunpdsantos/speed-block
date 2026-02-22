@@ -10,7 +10,6 @@ export class UIRenderer {
   private highScoreText: Text;
   private timerText: Text;
   private timerBarGfx: Graphics;
-  private speedText: Text;
   private speedBarGfx: Graphics;
   private layout!: Layout;
 
@@ -82,28 +81,15 @@ export class UIRenderer {
     });
 
     this.timerBarGfx = new Graphics();
-
-    this.speedText = new Text({
-      text: '\u00D71.0',
-      style: new TextStyle({
-        fontFamily: FONT_MONO,
-        fontSize: 14,
-        fontWeight: '400',
-        fill: THEME.textSecondary,
-        letterSpacing: 1,
-      }),
-    });
-
     this.speedBarGfx = new Graphics();
 
     this.container.addChild(this.highScoreText);
     this.container.addChild(this.scoreLabelText);
     this.container.addChild(this.scoreText);
     this.container.addChild(this.streakText);
+    this.container.addChild(this.speedBarGfx);
     this.container.addChild(this.timerBarGfx);
     this.container.addChild(this.timerText);
-    this.container.addChild(this.speedBarGfx);
-    this.container.addChild(this.speedText);
   }
 
   setLayout(layout: Layout): void {
@@ -129,11 +115,6 @@ export class UIRenderer {
     this.timerText.anchor.set(0, 1);
     this.timerText.x = layout.gridOriginX;
     this.timerText.y = layout.gridOriginY - 8;
-
-    // Speed text: right-aligned above the bar
-    this.speedText.anchor.set(1, 1);
-    this.speedText.x = layout.gridOriginX + layout.gridSize;
-    this.speedText.y = layout.gridOriginY - 8;
   }
 
   updateScore(score: number): void {
@@ -230,25 +211,24 @@ export class UIRenderer {
     }
   }
 
-  updateSpeed(multiplier: number, decayWindow: number, elapsed: number): void {
+  /** Draw the speed-time bar: shows how much of the time bonus you'll earn */
+  updateSpeedBar(speedFraction: number, speedWindow: number, elapsed: number): void {
     if (!this.layout) return;
     const layout = this.layout;
 
-    // Speed bar: thin bar below the timer bar showing decay progress
     const barX = layout.gridOriginX;
     const barY = layout.gridOriginY - 2;
     const barW = layout.gridSize;
     const barH = 3;
 
-    const fill = Math.max(0, 1 - elapsed / decayWindow);
+    const fill = Math.max(0, 1 - elapsed / speedWindow);
     const fillW = Math.max(barH, barW * fill);
 
-    // Color by multiplier level
+    // Color by speed fraction
     let color: number;
-    if (multiplier >= 2.5) color = 0xef4444;       // red — blazing
-    else if (multiplier >= 2.0) color = 0xf59e0b;  // amber — fast
-    else if (multiplier >= 1.5) color = 0x20bf6b;   // green — decent
-    else color = 0x4a5568;                          // grey — slow
+    if (speedFraction >= 0.9) color = 0x20bf6b;   // green — fast
+    else if (speedFraction >= 0.6) color = 0xf59e0b; // amber — decent
+    else color = 0x4a5568;                           // grey — slow
 
     const g = this.speedBarGfx;
     g.clear();
@@ -262,11 +242,6 @@ export class UIRenderer {
       g.roundRect(barX, barY, fillW, barH, 1);
       g.fill({ color });
     }
-
-    // Speed text
-    this.speedText.text = `\u00D7${multiplier.toFixed(1)}`;
-    this.speedText.style.fill = color;
-    this.speedText.visible = multiplier > 1.05;
   }
 
   private updateScoreColor(score: number): void {

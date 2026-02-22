@@ -15,18 +15,17 @@ export interface ScoringConfig {
 export interface TimerConfig {
   startSeconds: number;          // initial time bank
   maxSeconds: number;            // cap so timer can't grow forever
-  piecePlaceBonus: number;       // seconds added per piece placed
+  piecePlaceBonus: number;       // max seconds added per piece placed (at instant speed)
   clear1LineBonus: number;       // seconds added for clearing 1 line
   clear2LineBonus: number;       // seconds added for clearing 2 lines simultaneously
   clear3PlusLineBonus: number;   // seconds added for clearing 3+ lines
   boardClearBonus: number;       // seconds added for clearing the entire board
   streakBonusPerLevel: number;   // extra seconds per streak level on a clear
-}
-
-export interface SpeedConfig {
-  maxMultiplier: number;          // multiplier at instant placement (e.g. 3.0)
-  minMultiplier: number;          // floor multiplier after decay window (1.0)
-  decayWindowSeconds: number;     // seconds until multiplier bottoms out
+  // Speed → time scaling
+  speedWindowSeconds: number;    // seconds until speed bonus fully decays
+  minTimeBonusFraction: number;  // floor fraction of time bonus at slowest (e.g. 0.33 = 1/3)
+  // Drain acceleration
+  drainAccelPerMinute: number;   // how much drain rate increases per minute survived
 }
 
 export interface GenerationConfig {
@@ -37,7 +36,6 @@ export interface GenerationConfig {
 export interface GameConfig {
   scoring: ScoringConfig;
   timer: TimerConfig;
-  speed: SpeedConfig;
   generation: GenerationConfig;
 }
 
@@ -64,11 +62,9 @@ export const DEFAULT_CONFIG: GameConfig = {
     clear3PlusLineBonus: 10,
     boardClearBonus: 15,
     streakBonusPerLevel: 1,
-  },
-  speed: {
-    maxMultiplier: 3.0,
-    minMultiplier: 1.0,
-    decayWindowSeconds: 8,
+    speedWindowSeconds: 8,
+    minTimeBonusFraction: 0.33,
+    drainAccelPerMinute: 0.15,
   },
   generation: {
     ensureLegalPlacement: true,

@@ -1,30 +1,27 @@
-import { ScoringConfig, TimerConfig, SpeedConfig } from './Config';
+import { ScoringConfig, TimerConfig } from './Config';
 import { ClearResult, ScoreBreakdown } from './types';
 
 export class ScoreEngine {
   private scoring: ScoringConfig;
   private timer: TimerConfig;
-  private speed: SpeedConfig;
 
-  constructor(scoring: ScoringConfig, timer: TimerConfig, speed: SpeedConfig) {
+  constructor(scoring: ScoringConfig, timer: TimerConfig) {
     this.scoring = scoring;
     this.timer = timer;
-    this.speed = speed;
   }
 
-  /** Get speed multiplier based on elapsed seconds since last placement */
-  getSpeedMultiplier(elapsedSecs: number): number {
-    const { maxMultiplier, minMultiplier, decayWindowSeconds } = this.speed;
-    const t = Math.min(elapsedSecs / decayWindowSeconds, 1);
-    return maxMultiplier - (maxMultiplier - minMultiplier) * t;
+  /** Speed fraction: 1.0 at instant placement, decays to minTimeBonusFraction */
+  getSpeedFraction(elapsedSecs: number): number {
+    const { speedWindowSeconds, minTimeBonusFraction } = this.timer;
+    const t = Math.min(elapsedSecs / speedWindowSeconds, 1);
+    return 1 - (1 - minTimeBonusFraction) * t;
   }
 
-  /** Calculate score for a single turn (clears only — no placement points) */
+  /** Calculate score for a single turn (clears only — no speed multiplier on score) */
   calculate(
     clearResult: ClearResult,
     streakCount: number,
     isBoardClear: boolean,
-    speedMultiplier: number = 1,
   ): ScoreBreakdown {
     const cfg = this.scoring;
 
@@ -53,33 +50,36 @@ export class ScoreEngine {
       cfg.streakMultiplierCap,
     );
 
-    // Final score: streak × speed
+    // Final score: streak only (speed affects time, not score)
     let turnScore: number;
     if (cfg.streakBonusAppliesTo === 'base+combo') {
-      turnScore = Math.floor((basePoints + lineBonus) * streakMultiplier * speedMultiplier);
+      turnScore = Math.floor((basePoints + lineBonus) * streakMultiplier);
     } else {
-      turnScore = Math.floor(basePoints * streakMultiplier * speedMultiplier) + lineBonus;
+      turnScore = Math.floor(basePoints * streakMultiplier) + lineBonus;
     }
 
     return {
       basePoints,
       lineBonus,
       streakMultiplier,
-      speedMultiplier,
       turnScore,
       totalScore: 0, // filled by GameState
     };
   }
 
-  /** Calculate time bonus for a placement + clear */
+  /** Calculate time bonus for a placement + clear, scaled by speed */
   calculateTimeBonus(
     linesCleared: number,
     isBoardClear: boolean,
     streakCount: number,
+    speedFraction: number,
   ): number {
     const cfg = this.timer;
+
+    // Base time bonus for placement
     let bonus = cfg.piecePlaceBonus;
 
+    // Clear bonuses
     if (linesCleared === 1) {
       bonus += cfg.clear1LineBonus;
     } else if (linesCleared === 2) {
@@ -97,6 +97,7 @@ export class ScoreEngine {
       bonus += streakCount * cfg.streakBonusPerLevel;
     }
 
-    return bonus;
+    // Scale entire bonus by speed fraction
+    return Math.round(bonus * speedFraction * 10) / 10;
   }
 }
