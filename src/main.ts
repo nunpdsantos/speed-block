@@ -20,7 +20,7 @@ async function boot() {
   });
 
   container.appendChild(app.canvas);
-  app.canvas.style.touchAction = 'manipulation';
+  app.canvas.style.touchAction = 'none';
 
   const layoutManager = new LayoutManager();
   const audioManager = new AudioManager();

@@ -9,7 +9,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: #4a5ba6;
-  touch-action: manipulation;
+  touch-action: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
@@ -26,6 +26,6 @@ html, body {
 }
 
 #game-container canvas {
-  touch-action: manipulation;
+  touch-action: none;
   display: block;
 }
