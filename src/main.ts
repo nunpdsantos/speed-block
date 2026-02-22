@@ -45,6 +45,11 @@ async function boot() {
     sceneManager.switchTo(menu);
   }
 
+  /** Set the app background color (for color temperature shifting) */
+  function setBgColor(color: number): void {
+    app.renderer.background.color = color;
+  }
+
   function startGame() {
     const config = DIFFICULTY_CONFIGS[selectedDifficulty];
     const gameScene = new GameScene(
@@ -55,6 +60,7 @@ async function boot() {
       selectedDifficulty,
       (score) => showGameOver(score),
       () => showMenu(),
+      setBgColor,
     );
     sceneManager.switchTo(gameScene);
   }

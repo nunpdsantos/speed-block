@@ -115,7 +115,8 @@ export class GameState {
 
     // 2. Commit cells
     const placedCells = this.board.place(piece.shape, row, col, piece.color);
-    events.push({ type: 'place', pieceIndex, placedCells });
+    const placeSpeedFraction = this.scoreEngine.getSpeedFraction(this.pieceElapsed);
+    events.push({ type: 'place', pieceIndex, placedCells, speedFraction: placeSpeedFraction });
 
     // 3. Detect completed lines
     const completed = this.board.findCompleted();
@@ -138,6 +139,10 @@ export class GameState {
     } else {
       this.movesSinceLastClear++;
       if (this.movesSinceLastClear >= this.config.scoring.comboWindowPlacements) {
+        if (this.streakCount >= 3) {
+          events[0].streakBroken = true;
+          events[0].previousStreak = this.streakCount;
+        }
         this.streakCount = 0;
       }
     }

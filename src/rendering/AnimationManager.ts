@@ -15,6 +15,17 @@ interface Particle {
   maxLife: number;
 }
 
+interface SpeedLine {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  length: number;
+  alpha: number;
+  life: number;
+  maxLife: number;
+}
+
 interface ScorePopup {
   text: Text;
   startY: number;
@@ -22,24 +33,30 @@ interface ScorePopup {
   maxLife: number;
 }
 
+const MAX_PARTICLES = 500;
+
 export class AnimationManager {
   container: Container;
   private particles: Particle[] = [];
+  private speedLines: SpeedLine[] = [];
   private popups: ScorePopup[] = [];
   private particleGraphics: Graphics;
+  private speedLineGraphics: Graphics;
   private layout!: Layout;
 
   constructor() {
     this.container = new Container();
     this.particleGraphics = new Graphics();
+    this.speedLineGraphics = new Graphics();
     this.container.addChild(this.particleGraphics);
+    this.container.addChild(this.speedLineGraphics);
   }
 
   setLayout(layout: Layout): void {
     this.layout = layout;
   }
 
-  /** Spawn line-clear explosion particles at given cell positions */
+  /** Spawn line-clear explosion particles at given cell positions — 15 per cell */
   spawnClearEffect(cells: GridPos[], color: number): void {
     const { gridOriginX, gridOriginY, cellSize } = this.layout;
     const glowColor = lighten(color, 0.4);
@@ -48,28 +65,28 @@ export class AnimationManager {
       const cx = gridOriginX + cell.col * cellSize + cellSize / 2;
       const cy = gridOriginY + cell.row * cellSize + cellSize / 2;
 
-      // Bright inner burst
-      for (let i = 0; i < 3; i++) {
+      // Bright inner burst — 8 particles
+      for (let i = 0; i < 8; i++) {
         const angle = Math.random() * Math.PI * 2;
         const speed = 30 + Math.random() * 50;
-        this.particles.push({
+        this.addParticle({
           x: cx + (Math.random() - 0.5) * 4,
           y: cy + (Math.random() - 0.5) * 4,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
-          size: 3 + Math.random() * 3,
+          size: 2 + Math.random() * 3,
           color: glowColor,
           alpha: 1,
           life: 0,
-          maxLife: 0.3 + Math.random() * 0.15,
+          maxLife: 0.5 + Math.random() * 0.5,
         });
       }
 
-      // Colored sparks
-      for (let i = 0; i < 3; i++) {
+      // Colored sparks — 7 particles
+      for (let i = 0; i < 7; i++) {
         const angle = Math.random() * Math.PI * 2;
         const speed = 50 + Math.random() * 100;
-        this.particles.push({
+        this.addParticle({
           x: cx,
           y: cy,
           vx: Math.cos(angle) * speed,
@@ -78,18 +95,70 @@ export class AnimationManager {
           color,
           alpha: 1,
           life: 0,
-          maxLife: 0.5 + Math.random() * 0.25,
+          maxLife: 0.5 + Math.random() * 0.5,
         });
       }
     }
   }
 
-  /** Show a floating score popup */
+  /** Spawn explosion particles (for game over) */
+  spawnExplosion(cx: number, cy: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 100 + Math.random() * 200;
+      this.addParticle({
+        x: cx + (Math.random() - 0.5) * 20,
+        y: cy + (Math.random() - 0.5) * 20,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: 3 + Math.random() * 4,
+        color: [0xff4444, 0xfbbf24, 0x4a7af7, 0xffffff][Math.floor(Math.random() * 4)],
+        alpha: 1,
+        life: 0,
+        maxLife: 0.8 + Math.random() * 0.6,
+      });
+    }
+  }
+
+  /** Spawn speed lines radiating from center */
+  spawnSpeedLines(cx: number, cy: number, count: number = 10): void {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 200 + Math.random() * 300;
+      this.speedLines.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        length: 15 + Math.random() * 20,
+        alpha: 0.3 + Math.random() * 0.2,
+        life: 0,
+        maxLife: 0.2,
+      });
+    }
+  }
+
+  /** Add particle with oldest eviction when at cap */
+  private addParticle(p: Particle): void {
+    if (this.particles.length >= MAX_PARTICLES) {
+      this.particles.shift(); // evict oldest
+    }
+    this.particles.push(p);
+  }
+
+  /** Show a floating score popup — size scales with score magnitude */
   showScorePopup(score: number, x: number, y: number, isCombo: boolean): void {
+    let fontSize: number;
+    let maxLife: number;
+    if (score >= 500) { fontSize = 42; maxLife = 1.4; }
+    else if (score >= 200) { fontSize = 36; maxLife = 1.2; }
+    else if (score >= 100) { fontSize = 32; maxLife = 1.0; }
+    else { fontSize = 24; maxLife = 0.9; }
+
     const color = isCombo ? THEME.gold : THEME.textPrimary;
     const style = new TextStyle({
       fontFamily: FONT_MONO,
-      fontSize: isCombo ? 30 : 24,
+      fontSize,
       fontWeight: '400',
       fill: color,
       letterSpacing: 1,
@@ -105,7 +174,7 @@ export class AnimationManager {
     text.x = x;
     text.y = y;
     this.container.addChild(text);
-    this.popups.push({ text, startY: y, life: 0, maxLife: 0.9 });
+    this.popups.push({ text, startY: y, life: 0, maxLife });
   }
 
   /** Show streak label or custom text */
@@ -164,12 +233,36 @@ export class AnimationManager {
     this.popups.push({ text, startY: y, life: 0, maxLife: 0.6 });
   }
 
+  /** Show center alert text (for critical time warnings) */
+  showCenterAlert(label: string): void {
+    if (!this.layout) return;
+    const style = new TextStyle({
+      fontFamily: FONT_DISPLAY,
+      fontSize: 28,
+      fontWeight: '800',
+      fill: 0xff4444,
+      letterSpacing: 4,
+      dropShadow: {
+        alpha: 0.8,
+        blur: 14,
+        color: 0xff4444,
+        distance: 0,
+      },
+    });
+    const text = new Text({ text: label, style });
+    text.anchor.set(0.5);
+    text.x = this.layout.width / 2;
+    text.y = this.layout.height / 2;
+    this.container.addChild(text);
+    this.popups.push({ text, startY: text.y, life: 0, maxLife: 1.0 });
+  }
+
   /** Update all animations. Called every frame with delta in seconds. */
   update(dt: number): void {
+    // Particles
     const g = this.particleGraphics;
     g.clear();
 
-    // Particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.life += dt;
@@ -191,6 +284,29 @@ export class AnimationManager {
       g.fill({ color: p.color, alpha: p.alpha });
     }
 
+    // Speed lines
+    const sg = this.speedLineGraphics;
+    sg.clear();
+
+    for (let i = this.speedLines.length - 1; i >= 0; i--) {
+      const l = this.speedLines[i];
+      l.life += dt;
+      if (l.life >= l.maxLife) {
+        this.speedLines.splice(i, 1);
+        continue;
+      }
+      const t = l.life / l.maxLife;
+      l.x += l.vx * dt;
+      l.y += l.vy * dt;
+
+      const alpha = l.alpha * (1 - t);
+      const dx = (l.vx / Math.sqrt(l.vx * l.vx + l.vy * l.vy)) * l.length;
+      const dy = (l.vy / Math.sqrt(l.vx * l.vx + l.vy * l.vy)) * l.length;
+      sg.moveTo(l.x, l.y);
+      sg.lineTo(l.x - dx, l.y - dy);
+      sg.stroke({ color: 0xffffff, alpha, width: 1.5 });
+    }
+
     // Score popups
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const popup = this.popups[i];
@@ -202,7 +318,6 @@ export class AnimationManager {
         continue;
       }
       const t = popup.life / popup.maxLife;
-      // Scale bounce: start slightly large, settle to 1, then shrink
       const scale = t < 0.15
         ? 1 + 0.3 * easeOut(t / 0.15)
         : 1.3 - 0.3 * easeOut((t - 0.15) / 0.85);

@@ -5,20 +5,33 @@ import { drawBeveledBlock, THEME } from './Theme';
 
 const BLOCK_RADIUS = 5;
 const BLOCK_INSET = 2;
+const DRAG_TRAIL_SIZE = 4;
+
+interface TrailPos {
+  x: number;
+  y: number;
+}
 
 export class PieceRenderer {
   container: Container;
   private trayPieces: Container[] = [];
   private dragPiece: Graphics;
+  private trailGraphics: Graphics;
   private selectionHighlight: Graphics;
   private layout!: Layout;
   private selectedIndex = -1;
+
+  // Drag trail — circular buffer of last 4 positions
+  private dragTrail: TrailPos[] = [];
+  private currentDragPiece: PieceInstance | null = null;
 
   constructor() {
     this.container = new Container();
     this.selectionHighlight = new Graphics();
     this.selectionHighlight.visible = false;
     this.container.addChild(this.selectionHighlight);
+    this.trailGraphics = new Graphics();
+    this.container.addChild(this.trailGraphics);
     this.dragPiece = new Graphics();
     this.dragPiece.visible = false;
     this.container.addChild(this.dragPiece);
@@ -87,6 +100,7 @@ export class PieceRenderer {
 
   /** Show dragged piece at pointer position */
   showDragPiece(piece: PieceInstance, px: number, py: number): void {
+    this.currentDragPiece = piece;
     const g = this.dragPiece;
     g.clear();
     const { cellSize } = this.layout;
@@ -106,6 +120,57 @@ export class PieceRenderer {
       }
     }
     g.visible = true;
+
+    // Draw trail ghosts
+    this.drawTrail(piece, px, py);
+  }
+
+  /** Record a drag position for the trail */
+  recordDragPosition(px: number, py: number): void {
+    this.dragTrail.push({ x: px, y: py });
+    if (this.dragTrail.length > DRAG_TRAIL_SIZE) {
+      this.dragTrail.shift();
+    }
+  }
+
+  /** Clear drag trail on drop */
+  clearDragTrail(): void {
+    this.dragTrail = [];
+    this.currentDragPiece = null;
+    this.trailGraphics.clear();
+  }
+
+  private drawTrail(piece: PieceInstance, currentX: number, currentY: number): void {
+    const g = this.trailGraphics;
+    g.clear();
+    if (this.dragTrail.length === 0) return;
+
+    const { cellSize } = this.layout;
+    const halfW = (piece.cols * cellSize) / 2;
+    const halfH = (piece.rows * cellSize) / 2;
+    const inset = 3;
+
+    for (let ti = 0; ti < this.dragTrail.length; ti++) {
+      const pos = this.dragTrail[ti];
+      // Skip if too close to current position
+      const dx = pos.x - currentX;
+      const dy = pos.y - currentY;
+      if (Math.abs(dx) < 3 && Math.abs(dy) < 3) continue;
+
+      const alpha = 0.08 * (ti + 1) / this.dragTrail.length;
+
+      for (let r = 0; r < piece.rows; r++) {
+        for (let c = 0; c < piece.cols; c++) {
+          if (piece.shape[r][c]) {
+            const x = pos.x - halfW + c * cellSize + inset;
+            const y = pos.y - halfH + r * cellSize + inset + this.layout.dragOffsetY;
+            const size = cellSize - inset * 2;
+            g.roundRect(x, y, size, size, BLOCK_RADIUS);
+            g.fill({ color: piece.color, alpha });
+          }
+        }
+      }
+    }
   }
 
   hideDragPiece(): void {

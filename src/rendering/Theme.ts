@@ -46,6 +46,17 @@ export function lighten(color: number, amount: number): number {
   return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b);
 }
 
+/** Linearly interpolate between two RGB colors */
+export function lerpColor(a: number, b: number, t: number): number {
+  const clamp = Math.max(0, Math.min(1, t));
+  const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+  const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+  const r = Math.round(ar + (br - ar) * clamp);
+  const g = Math.round(ag + (bg - ag) * clamp);
+  const bv = Math.round(ab + (bb - ab) * clamp);
+  return (r << 16) | (g << 8) | bv;
+}
+
 /**
  * Draw a 3D beveled block tile — matches the raised-tile style
  * of the original game with thick highlight and visible shadow edge.

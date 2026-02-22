@@ -62,6 +62,9 @@ export interface FeedbackEvent {
   newBatch?: PieceInstance[];
   isBoardClear?: boolean;
   timeBonus?: number;
+  speedFraction?: number;
+  streakBroken?: boolean;
+  previousStreak?: number;
 }
 
 // ── Color palette — bold and saturated ──

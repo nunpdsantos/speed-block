@@ -7,14 +7,18 @@ import { PieceRenderer } from '../rendering/PieceRenderer';
 import { GhostRenderer } from '../rendering/GhostRenderer';
 import { UIRenderer } from '../rendering/UIRenderer';
 import { AnimationManager } from '../rendering/AnimationManager';
+import { FXManager } from '../rendering/FXManager';
 import { DragController, DragState } from '../input/DragController';
 import { AudioManager } from '../audio/AudioManager';
 import { FeedbackEvent } from '../core/types';
 import { Difficulty, GameConfig } from '../core/Config';
 import { FONT_DISPLAY, THEME } from '../rendering/Theme';
 
+type CountdownPhase = 'countdown' | 'playing' | 'gameOver';
+
 export class GameScene implements Scene {
   container: Container;
+  private gameContent: Container; // wrapper for shake/zoom
   private gameState: GameState;
   private layoutManager: LayoutManager;
   private gridRenderer: GridRenderer;
@@ -22,16 +26,32 @@ export class GameScene implements Scene {
   private ghostRenderer: GhostRenderer;
   private uiRenderer: UIRenderer;
   private animationManager: AnimationManager;
+  private fxManager: FXManager;
   private dragController: DragController;
   private audioManager: AudioManager;
   private canvas: HTMLCanvasElement;
   private onGameOver: (score: number) => void;
   private onQuit: () => void;
+  private bgColorSetter: ((color: number) => void) | null = null;
 
   // Pause state
   private paused = false;
   private pauseOverlay: Container | null = null;
   private pauseBtn: Container | null = null;
+
+  // Countdown state
+  private countdownPhase: CountdownPhase = 'countdown';
+  private countdownTime = 3;
+  private countdownText: Text | null = null;
+  private lastCountdownNumber = 4;
+
+  // Critical time alerts
+  private alertsFired = { ten: false, five: false, last: false };
+  private lastTickSecond = -1;
+
+  // Game over sequence
+  private gameOverSequenceActive = false;
+  private gameOverElapsed = 0;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -41,12 +61,14 @@ export class GameScene implements Scene {
     difficulty: Difficulty,
     onGameOver: (score: number) => void,
     onQuit: () => void,
+    bgColorSetter?: (color: number) => void,
   ) {
     this.canvas = canvas;
     this.layoutManager = layoutManager;
     this.audioManager = audioManager;
     this.onGameOver = onGameOver;
     this.onQuit = onQuit;
+    this.bgColorSetter = bgColorSetter || null;
     this.container = new Container();
 
     this.gameState = new GameState(config, difficulty);
@@ -55,14 +77,35 @@ export class GameScene implements Scene {
     this.ghostRenderer = new GhostRenderer();
     this.uiRenderer = new UIRenderer();
     this.animationManager = new AnimationManager();
+    this.fxManager = new FXManager();
     this.dragController = new DragController(layoutManager, this.gameState.board);
 
-    // Layer order matters
-    this.container.addChild(this.gridRenderer.container);
-    this.container.addChild(this.ghostRenderer.container);
-    this.container.addChild(this.pieceRenderer.container);
-    this.container.addChild(this.uiRenderer.container);
-    this.container.addChild(this.animationManager.container);
+    // Container hierarchy:
+    // container
+    //   fxManager.bgContainer       ← background particles
+    //   gameContent                  ← wrapper for shake/zoom
+    //     gridRenderer.container
+    //     ghostRenderer.container
+    //     pieceRenderer.container
+    //     uiRenderer.container
+    //     animationManager.container
+    //   fxManager.fgContainer       ← vignette, screen flash
+    //   pauseBtn / pauseOverlay
+
+    this.gameContent = new Container();
+    this.container.addChild(this.fxManager.bgContainer);
+    this.gameContent.addChild(this.gridRenderer.container);
+    this.gameContent.addChild(this.ghostRenderer.container);
+    this.gameContent.addChild(this.pieceRenderer.container);
+    this.gameContent.addChild(this.uiRenderer.container);
+    this.gameContent.addChild(this.animationManager.container);
+    this.container.addChild(this.gameContent);
+    this.container.addChild(this.fxManager.fgContainer);
+
+    this.fxManager.setShakeTarget(this.gameContent);
+    if (this.bgColorSetter) {
+      this.fxManager.setBgColorSetter(this.bgColorSetter);
+    }
 
     this.setupDragCallbacks();
   }
@@ -74,11 +117,11 @@ export class GameScene implements Scene {
     this.ghostRenderer.setLayout(layout);
     this.uiRenderer.setLayout(layout);
     this.animationManager.setLayout(layout);
+    this.fxManager.setLayout(layout);
 
-    this.dragController.attach(this.canvas);
     this.buildPauseButton(layout.width);
 
-    // Start game
+    // Start game (but don't tick timer until countdown finishes)
     this.gameState.start();
     this.dragController.updatePieces(this.gameState.activePieces);
     this.dragController.updateBoard(this.gameState.board);
@@ -89,10 +132,28 @@ export class GameScene implements Scene {
     this.uiRenderer.updateScore(this.gameState.score);
     this.uiRenderer.updateHighScore(this.gameState.highScore);
     this.uiRenderer.updateStreak(this.gameState.streakCount);
+
+    // Start countdown
+    this.countdownPhase = 'countdown';
+    this.countdownTime = 3;
+    this.lastCountdownNumber = 4;
+    this.alertsFired = { ten: false, five: false, last: false };
+    this.lastTickSecond = -1;
+    this.gameOverSequenceActive = false;
+    this.gameOverElapsed = 0;
+
+    // Disable drag during countdown
+    this.dragController.detach(this.canvas);
   }
 
   exit(): void {
     this.dragController.detach(this.canvas);
+    this.audioManager.stopPulse();
+    if (this.countdownText) {
+      this.container.removeChild(this.countdownText);
+      this.countdownText.destroy();
+      this.countdownText = null;
+    }
   }
 
   resize(width: number, height: number): void {
@@ -102,23 +163,42 @@ export class GameScene implements Scene {
     this.ghostRenderer.setLayout(layout);
     this.uiRenderer.setLayout(layout);
     this.animationManager.setLayout(layout);
+    this.fxManager.setLayout(layout);
     this.gridRenderer.drawBlocks(this.gameState.board.grid);
     this.pieceRenderer.drawTray(this.gameState.activePieces);
   }
 
   update(dt: number): void {
     if (this.paused) return;
-    this.animationManager.update(dt);
+
+    // Game over sequence
+    if (this.gameOverSequenceActive) {
+      this.updateGameOverSequence(dt);
+      this.fxManager.update(dt, this.gameState.drainRate, this.gameState.gameElapsed);
+      this.animationManager.update(this.fxManager.getAnimationDt(dt));
+      return;
+    }
+
+    // Countdown phase
+    if (this.countdownPhase === 'countdown') {
+      this.updateCountdown(dt);
+      this.fxManager.update(dt, 1, 0);
+      return;
+    }
+
+    // Normal gameplay
+    const animDt = this.fxManager.getAnimationDt(dt);
+    this.animationManager.update(animDt);
 
     // Tick the timer down
     const timeUp = this.gameState.tick(dt);
     if (timeUp) {
-      this.audioManager.playGameOver();
-      setTimeout(() => {
-        this.onGameOver(this.gameState.score);
-      }, 800);
+      this.startGameOverSequence();
       return;
     }
+
+    // FX manager update
+    this.fxManager.update(dt, this.gameState.drainRate, this.gameState.gameElapsed);
 
     // Update timer bar
     this.uiRenderer.updateTimer(this.gameState.timeRemaining, this.gameState.maxTime, dt);
@@ -129,6 +209,195 @@ export class GameScene implements Scene {
       this.gameState.config.timer.speedWindowSeconds,
       this.gameState.pieceElapsed,
     );
+
+    // Background pulse audio
+    this.audioManager.updatePulse(this.gameState.drainRate);
+
+    // Countdown ticks
+    this.updateCountdownTicks();
+
+    // Critical time alerts
+    this.updateCriticalAlerts();
+
+    // Grid border heartbeat
+    this.gridRenderer.updateGlow(dt, this.gameState.timeRemaining);
+
+    // Near-miss highlight
+    this.gridRenderer.updateNearMiss(this.gameState.board);
+
+    // Haptic heartbeat for low time
+    if (this.gameState.timeRemaining <= 10) {
+      const sec = Math.ceil(this.gameState.timeRemaining);
+      if (sec !== this.lastTickSecond && sec > 0) {
+        this.haptic([20, 100, 20]);
+      }
+    }
+  }
+
+  // ── Countdown ──
+
+  private updateCountdown(dt: number): void {
+    this.countdownTime -= dt;
+    const currentNum = Math.ceil(this.countdownTime);
+
+    if (currentNum !== this.lastCountdownNumber && currentNum > 0) {
+      this.lastCountdownNumber = currentNum;
+      this.showCountdownNumber(String(currentNum));
+      this.audioManager.playTick();
+    }
+
+    if (this.countdownTime <= 0) {
+      // Show "GO!"
+      this.showCountdownNumber('GO!', true);
+      this.audioManager.playGoChime();
+      this.fxManager.triggerFlash(0.3, 6);
+
+      this.countdownPhase = 'playing';
+      this.dragController.attach(this.canvas);
+      this.audioManager.startPulse(this.gameState.drainRate);
+    }
+  }
+
+  private showCountdownNumber(text: string, isGo = false): void {
+    if (this.countdownText) {
+      this.container.removeChild(this.countdownText);
+      this.countdownText.destroy();
+    }
+    const layout = this.layoutManager.layout;
+    this.countdownText = new Text({
+      text,
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 64,
+        fontWeight: '800',
+        fill: isGo ? THEME.gold : THEME.textPrimary,
+        letterSpacing: 8,
+        dropShadow: {
+          alpha: 0.7,
+          blur: 16,
+          color: isGo ? THEME.gold : 0x3b82f6,
+          distance: 0,
+        },
+      }),
+    });
+    this.countdownText.anchor.set(0.5);
+    this.countdownText.x = layout.width / 2;
+    this.countdownText.y = layout.height / 2 - 30;
+    this.container.addChild(this.countdownText);
+
+    // Animate: scale in and fade out
+    const startTime = performance.now();
+    const animate = () => {
+      if (!this.countdownText) return;
+      const elapsed = performance.now() - startTime;
+      const t = elapsed / 800;
+      if (t >= 1) {
+        if (this.countdownText.parent) {
+          this.container.removeChild(this.countdownText);
+          this.countdownText.destroy();
+          this.countdownText = null;
+        }
+        return;
+      }
+      const scale = 1 + 0.3 * (1 - t);
+      this.countdownText.scale.set(scale);
+      this.countdownText.alpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+      requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }
+
+  // ── Countdown ticks ──
+
+  private updateCountdownTicks(): void {
+    const time = this.gameState.timeRemaining;
+    if (time > 10) return;
+    const sec = Math.ceil(time);
+    if (sec === this.lastTickSecond || sec <= 0) return;
+    this.lastTickSecond = sec;
+
+    if (time <= 3) {
+      // Triple tick
+      this.audioManager.playTick();
+      setTimeout(() => this.audioManager.playTick(), 80);
+      setTimeout(() => this.audioManager.playTick(), 160);
+    } else if (time <= 5) {
+      // Double tick
+      this.audioManager.playTick();
+      setTimeout(() => this.audioManager.playTick(), 100);
+    } else {
+      // Single tick
+      this.audioManager.playTick();
+    }
+  }
+
+  // ── Critical alerts ──
+
+  private updateCriticalAlerts(): void {
+    const time = this.gameState.timeRemaining;
+    if (time <= 10 && time > 9.5 && !this.alertsFired.ten) {
+      this.alertsFired.ten = true;
+      this.showCenterAlert('10 SECONDS!');
+      this.audioManager.playAlertChime();
+    }
+    if (time <= 5 && time > 4.5 && !this.alertsFired.five) {
+      this.alertsFired.five = true;
+      this.showCenterAlert('5 SECONDS!');
+      this.audioManager.playAlertChime();
+    }
+    if (time <= 3 && time > 2.5 && !this.alertsFired.last) {
+      this.alertsFired.last = true;
+      this.showCenterAlert('LAST CHANCE!');
+      this.audioManager.playAlertChime();
+      this.fxManager.triggerShake(3, 0.2);
+    }
+  }
+
+  private showCenterAlert(text: string): void {
+    this.animationManager.showCenterAlert(text);
+  }
+
+  // ── Game over sequence ──
+
+  private startGameOverSequence(): void {
+    this.gameOverSequenceActive = true;
+    this.gameOverElapsed = 0;
+    this.countdownPhase = 'gameOver';
+    this.dragController.detach(this.canvas);
+    this.audioManager.stopPulse();
+    this.audioManager.playGameOver();
+
+    // Flash
+    this.fxManager.triggerFlash(0.6, 3);
+    // Big shake
+    this.fxManager.triggerShake(12, 0.4);
+    // Slow-motion
+    this.fxManager.triggerImpactFrame(0.2, 0.5);
+
+    // Explosion particles from grid center
+    const layout = this.layoutManager.layout;
+    const cx = layout.gridOriginX + layout.gridSize / 2;
+    const cy = layout.gridOriginY + layout.gridSize / 2;
+    this.animationManager.spawnExplosion(cx, cy, 50);
+
+    // Haptic
+    this.haptic([50, 30, 80, 30, 120]);
+  }
+
+  private updateGameOverSequence(dt: number): void {
+    this.gameOverElapsed += dt;
+    if (this.gameOverElapsed >= 1.2) {
+      this.gameOverSequenceActive = false;
+      this.onGameOver(this.gameState.score);
+    }
+  }
+
+  // ── Haptic feedback ──
+
+  private haptic(pattern: number | number[]): void {
+    if (navigator.vibrate) {
+      navigator.vibrate(pattern);
+    }
   }
 
   // ── Pause button ──
@@ -144,7 +413,6 @@ export class GameScene implements Scene {
     bg.fill({ color: 0x000000, alpha: 0.25 });
     btn.addChild(bg);
 
-    // Pause icon (two vertical bars)
     const icon = new Graphics();
     const barW = 4;
     const barH = 16;
@@ -174,6 +442,7 @@ export class GameScene implements Scene {
     if (this.paused) return;
     this.paused = true;
     this.dragController.detach(this.canvas);
+    this.audioManager.stopPulse();
     this.buildPauseOverlay();
   }
 
@@ -181,11 +450,15 @@ export class GameScene implements Scene {
     if (!this.paused) return;
     this.paused = false;
     this.dragController.attach(this.canvas);
+    if (this.countdownPhase === 'playing') {
+      this.audioManager.startPulse(this.gameState.drainRate);
+    }
     this.removePauseOverlay();
   }
 
   private quit(): void {
     this.removePauseOverlay();
+    this.audioManager.stopPulse();
     if (this.gameState.score > 0) {
       this.onGameOver(this.gameState.score);
     } else {
@@ -197,7 +470,6 @@ export class GameScene implements Scene {
     const layout = this.layoutManager.layout;
     const overlay = new Container();
 
-    // Dimmed background
     const bg = new Graphics();
     bg.rect(0, 0, layout.width, layout.height);
     bg.fill({ color: 0x0a0e20, alpha: 0.85 });
@@ -205,7 +477,6 @@ export class GameScene implements Scene {
     bg.on('pointerdown', (e) => e.stopPropagation());
     overlay.addChild(bg);
 
-    // "PAUSED" title
     const title = new Text({
       text: 'PAUSED',
       style: new TextStyle({
@@ -221,11 +492,9 @@ export class GameScene implements Scene {
     title.y = layout.height * 0.35;
     overlay.addChild(title);
 
-    // Resume button
     const resumeBtnY = layout.height * 0.48;
     this.addOverlayButton(overlay, 'RESUME', layout.width / 2, resumeBtnY, THEME.btnPrimary, () => this.resume());
 
-    // Quit button
     const quitBtnY = layout.height * 0.58;
     this.addOverlayButton(overlay, 'QUIT', layout.width / 2, quitBtnY, 0x4a4a6a, () => this.quit());
 
@@ -300,6 +569,7 @@ export class GameScene implements Scene {
 
     this.dragController.onDragMove = (state: DragState) => {
       this.pieceRenderer.showDragPiece(state.piece, state.pointerX, state.pointerY);
+      this.pieceRenderer.recordDragPosition(state.pointerX, state.pointerY);
       if (state.gridPos) {
         this.ghostRenderer.show(
           state.piece.shape, state.gridPos.row, state.gridPos.col,
@@ -312,6 +582,7 @@ export class GameScene implements Scene {
 
     this.dragController.onDragEnd = (state: DragState) => {
       this.pieceRenderer.hideDragPiece();
+      this.pieceRenderer.clearDragTrail();
       this.ghostRenderer.hide();
 
       if (state.gridPos && state.isValid) {
@@ -330,6 +601,7 @@ export class GameScene implements Scene {
 
     this.dragController.onDragCancel = () => {
       this.pieceRenderer.hideDragPiece();
+      this.pieceRenderer.clearDragTrail();
       this.ghostRenderer.hide();
       this.pieceRenderer.drawTray(this.gameState.activePieces);
     };
@@ -380,16 +652,71 @@ export class GameScene implements Scene {
   private processFeedback(events: FeedbackEvent[]): void {
     for (const event of events) {
       switch (event.type) {
-        case 'place':
+        case 'place': {
           this.audioManager.playPlace();
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
+          this.haptic(10);
+
+          // Placement flash
+          if (event.placedCells) {
+            this.gridRenderer.flashCells(event.placedCells);
+          }
+
+          // Speed-based effects
+          if (event.speedFraction !== undefined && event.speedFraction >= 0.8) {
+            this.audioManager.playWhoosh();
+            // Speed lines from placement center
+            if (event.placedCells && event.placedCells.length > 0) {
+              const layout = this.layoutManager.layout;
+              let cx = 0, cy = 0;
+              for (const cell of event.placedCells) {
+                cx += layout.gridOriginX + cell.col * layout.cellSize + layout.cellSize / 2;
+                cy += layout.gridOriginY + cell.row * layout.cellSize + layout.cellSize / 2;
+              }
+              cx /= event.placedCells.length;
+              cy /= event.placedCells.length;
+              this.animationManager.spawnSpeedLines(cx, cy);
+            }
+          }
+
+          // Speed lines at lower threshold during flow state
+          if (this.fxManager.currentFlowIntensity >= 0.35 && event.speedFraction !== undefined && event.speedFraction >= 0.5) {
+            if (event.placedCells && event.placedCells.length > 0) {
+              const layout = this.layoutManager.layout;
+              let cx = 0, cy = 0;
+              for (const cell of event.placedCells) {
+                cx += layout.gridOriginX + cell.col * layout.cellSize + layout.cellSize / 2;
+                cy += layout.gridOriginY + cell.row * layout.cellSize + layout.cellSize / 2;
+              }
+              cx /= event.placedCells.length;
+              cy /= event.placedCells.length;
+              this.animationManager.spawnSpeedLines(cx, cy, 6);
+            }
+          }
+
           if (event.timeBonus) {
             this.showTimeBonusPopup(event.timeBonus);
           }
-          break;
 
-        case 'clear':
+          // Streak broken
+          if (event.streakBroken) {
+            this.audioManager.playStreakBreak();
+          }
+
+          // Update flow state
+          this.fxManager.updateFlowState(this.gameState.streakCount);
+          break;
+        }
+
+        case 'clear': {
           this.audioManager.playClear();
+          this.audioManager.playSubBass();
+          this.haptic(30);
+
+          // Shake: 1-line clear
+          this.fxManager.triggerShake(2, 0.08);
+          this.fxManager.triggerImpactFrame(0.1, 0.05);
+
           if (event.clearResult) {
             this.animationManager.spawnClearEffect(
               event.clearResult.cellsCleared,
@@ -411,15 +738,49 @@ export class GameScene implements Scene {
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
           this.uiRenderer.updateScore(this.gameState.score);
           this.uiRenderer.updateStreak(this.gameState.streakCount);
+          this.fxManager.updateFlowState(this.gameState.streakCount);
           break;
+        }
 
-        case 'combo':
+        case 'combo': {
           this.audioManager.playCombo(this.gameState.streakCount);
+          this.audioManager.playSubBass();
+          this.haptic(50);
+
+          // Shake: 2+ lines
+          const lines = event.clearResult?.totalLinesCleared ?? 0;
+          this.fxManager.triggerShake(lines >= 3 ? 6 : 4, 0.12);
+          this.fxManager.triggerImpactFrame(0.1, 0.05);
+
+          // Reverb tail for streak >= 3
+          if (this.gameState.streakCount >= 3) {
+            this.audioManager.playComboReverb(this.gameState.streakCount);
+          }
+
+          // Zoom pulse on 3+ line clears
+          if (lines >= 3) {
+            const layout = this.layoutManager.layout;
+            this.fxManager.triggerZoomPulse(
+              this.gameContent,
+              layout.gridOriginX + layout.gridSize / 2,
+              layout.gridOriginY + layout.gridSize / 2,
+            );
+          }
+
           if (event.clearResult) {
             this.animationManager.spawnClearEffect(
               event.clearResult.cellsCleared,
               0xF1C40F,
             );
+            // Secondary burst wave for combos at 100ms delay
+            setTimeout(() => {
+              if (event.clearResult) {
+                this.animationManager.spawnClearEffect(
+                  event.clearResult.cellsCleared,
+                  0xfbbf24,
+                );
+              }
+            }, 100);
           }
           if (event.scoreBreakdown) {
             const layout = this.layoutManager.layout;
@@ -437,9 +798,16 @@ export class GameScene implements Scene {
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
           this.uiRenderer.updateScore(this.gameState.score);
           this.uiRenderer.updateStreak(this.gameState.streakCount);
+          this.fxManager.updateFlowState(this.gameState.streakCount);
           break;
+        }
 
-        case 'boardClear':
+        case 'boardClear': {
+          // Big shake + flash
+          this.fxManager.triggerShake(8, 0.2);
+          this.fxManager.triggerFlash(0.5, 5);
+          this.haptic([50, 30, 80, 30, 120]);
+
           if (event.scoreBreakdown) {
             const layout = this.layoutManager.layout;
             this.animationManager.showScorePopup(
@@ -450,16 +818,14 @@ export class GameScene implements Scene {
             );
           }
           break;
+        }
 
         case 'newBatch':
           this.pieceRenderer.drawTray(this.gameState.activePieces);
           break;
 
         case 'gameOver':
-          this.audioManager.playGameOver();
-          setTimeout(() => {
-            this.onGameOver(this.gameState.score);
-          }, 800);
+          this.startGameOverSequence();
           break;
       }
     }

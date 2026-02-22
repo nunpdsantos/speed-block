@@ -143,6 +143,24 @@ export class Board {
     return count;
   }
 
+  /** Count filled cells in a row */
+  getRowFillCount(row: number): number {
+    let count = 0;
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (this.grid[row][c] !== null) count++;
+    }
+    return count;
+  }
+
+  /** Count filled cells in a column */
+  getColFillCount(col: number): number {
+    let count = 0;
+    for (let r = 0; r < GRID_SIZE; r++) {
+      if (this.grid[r][col] !== null) count++;
+    }
+    return count;
+  }
+
   /** Count occupied cells */
   occupiedCount(): number {
     let count = 0;
