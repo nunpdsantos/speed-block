@@ -88,9 +88,11 @@ export class Leaderboard {
       });
 
       if (!res.ok) throw new Error('API error');
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) throw new Error('Not JSON');
 
       const data = await res.json();
-      if (data.entries) {
+      if (data.entries && Array.isArray(data.entries)) {
         this.entries = data.entries.map((e: Record<string, unknown>) => ({
           name: (e.name as string) || 'Player',
           score: e.score as number,
@@ -114,7 +116,10 @@ export class Leaderboard {
     try {
       const res = await fetch(`${API_URL}?difficulty=${this.difficulty}`);
       if (!res.ok) throw new Error('API error');
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) throw new Error('Not JSON');
       const data = await res.json();
+      if (!Array.isArray(data)) throw new Error('Invalid data');
       this.entries = data.map((e: Record<string, unknown>) => ({
         name: (e.name as string) || 'Player',
         score: e.score as number,
@@ -122,7 +127,7 @@ export class Leaderboard {
       }));
       this.saveLocal();
     } catch {
-      // Offline — keep local data
+      // Offline or invalid response — keep local data
     }
     this.fetchPromise = null;
   }

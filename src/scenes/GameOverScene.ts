@@ -229,7 +229,7 @@ export class GameOverScene implements Scene {
     const input = document.createElement('input');
     input.type = 'text';
     input.maxLength = 12;
-    input.value = this.leaderboard.getLastName();
+    input.value = '';
     input.autocomplete = 'off';
     input.enterKeyHint = 'done';
     input.inputMode = 'text';
