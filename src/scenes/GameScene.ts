@@ -698,6 +698,9 @@ export class GameScene implements Scene {
             this.showTimeBonusPopup(event.timeBonus);
           }
 
+          // Update score display (placement points)
+          this.uiRenderer.updateScore(this.gameState.score);
+
           // Streak broken
           if (event.streakBroken) {
             this.audioManager.playStreakBreak();

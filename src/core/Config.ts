@@ -7,6 +7,7 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 };
 
 export interface ScoringConfig {
+  pointsPerBlockPlaced: number;
   pointsPerBlockCleared: number;
   pointsPerLineCleared: number;
   comboBaseBonus: number;
@@ -46,6 +47,7 @@ export interface GameConfig {
 }
 
 const SHARED_SCORING: ScoringConfig = {
+  pointsPerBlockPlaced: 1,
   pointsPerBlockCleared: 10,
   pointsPerLineCleared: 0,
   comboBaseBonus: 20,

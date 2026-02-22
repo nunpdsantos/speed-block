@@ -160,7 +160,11 @@ export class GameState {
     );
     this.addTime(timeBonus);
 
-    // 9. Compute score (clears only — no speed multiplier)
+    // 9. Award placement points (per block placed)
+    const placementPoints = placedCells.length * this.config.scoring.pointsPerBlockPlaced;
+    this.score += placementPoints;
+
+    // 10. Compute score for clears (no speed multiplier)
     if (clearResult.totalLinesCleared > 0) {
       const breakdown = this.scoreEngine.calculate(
         clearResult,
