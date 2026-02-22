@@ -107,6 +107,27 @@ export class MenuScene implements Scene {
     btnText.cursor = 'pointer';
     btnText.on('pointerdown', (e) => { e.stopPropagation(); this.onPlay(); });
 
+    // Refresh button (top-right corner)
+    const refreshText = new Text({
+      text: '↻',
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 22,
+        fill: THEME.textMuted,
+      }),
+    });
+    refreshText.anchor.set(0.5);
+    refreshText.x = this.width - 30;
+    refreshText.y = 28;
+    this.container.addChild(refreshText);
+
+    refreshText.eventMode = 'static';
+    refreshText.cursor = 'pointer';
+    refreshText.on('pointerdown', (e) => {
+      e.stopPropagation();
+      window.location.reload();
+    });
+
     // Leaderboard
     this.buildLeaderboard();
   }
