@@ -4,15 +4,15 @@ Fast 8x8 block-placement game inspired by the pacing, pressure, and line-clear l
 
 ## Project Status
 
-The recent gameplay work focused on one problem: players were hitting early score plateaus and the run curve was getting harsh too quickly. The current build now uses:
+The game uses a fair, competitive design where every player gets the same rules:
 
-- score-phased pacing instead of a mostly time-only pressure ramp
-- smarter 3-piece tray generation with rescue weighting and solvability checks
-- hidden cross-session adaptation based on recent runs
-- local telemetry that distinguishes timeout pressure from board-lock pressure
-- passive in-run tier framing so progress feels visible without adding friction
-
-The detailed handoff for this work lives in [`docs/IMPLEMENTATION_HANDOFF.md`](docs/IMPLEMENTATION_HANDOFF.md).
+- continuous score-phased difficulty curve (no step-function walls)
+- smart 3-piece tray generation with rescue weighting and solvability checks
+- gradual piece pool unlocks (new shapes trickle in one at a time as score climbs)
+- fixed board-fill rescue/threat weighting (same for all players, no hidden adaptation)
+- near-miss cell highlights showing exactly where to place to complete a line
+- passive in-run tier framing (ROOKIE through LEGEND) so progress feels visible
+- three difficulty modes: Chill, Fast, Blitz with separate leaderboards
 
 ## Tech Stack
 
@@ -57,11 +57,9 @@ npm run build
 - `src/core/Board.ts`: 8x8 board state, placement checks, line clear logic
 - `src/core/GameState.ts`: run loop, score/time state, run summary creation
 - `src/core/ScoreEngine.ts`: score and time-bonus calculations
-- `src/core/PieceGenerator.ts`: tray generation, pool selection, rescue weighting, solvability checks
-- `src/core/Progression.ts`: score tiers and progress state
-- `src/core/RunPacing.ts`: per-difficulty run phases and recovery logic
-- `src/core/AdaptiveProgression.ts`: hidden cross-session tuning model
-- `src/core/RunTelemetry.ts`: local telemetry storage and tuning signals
+- `src/core/PieceGenerator.ts`: tray generation, gradual pool unlocks, rescue/threat weighting, solvability checks
+- `src/core/Progression.ts`: score tiers (ROOKIE through LEGEND) and progress state
+- `src/core/RunPacing.ts`: continuous difficulty curve with grace, dry-spell, and low-time recovery
 - `src/core/Config.ts`: difficulty configs and generation settings
 
 ### Presentation and flow
@@ -70,21 +68,20 @@ npm run build
 - `src/scenes/GameScene.ts`: active gameplay scene, event handling, progression presentation
 - `src/scenes/GameOverScene.ts`: end-of-run flow
 - `src/rendering/UIRenderer.ts`: HUD, timer, streak, tier, and next-goal display
-- `src/rendering/*.ts`: board, piece, FX, layout, and animation rendering
+- `src/rendering/GridRenderer.ts`: board rendering, near-miss cell highlights, placement flash
+- `src/rendering/*.ts`: piece, FX, layout, and animation rendering
 - `src/audio/AudioManager.ts`: music and SFX control
 - `src/input/DragController.ts`: piece drag interactions
-- `src/main.ts`: app boot, scene switching, adaptive profile load/save
+- `src/main.ts`: app boot and scene switching
 
 ## Current Gameplay Direction
 
-This codebase is not trying to be a static clone. The current design goal is:
-
 1. Keep the game instantly readable and low-friction.
-2. Make runs feel fairer and more recoverable.
-3. Let players naturally feel improvement over repeated sessions.
-4. Hide most of the adaptation so progression feels automatic, not instructional.
+2. Make runs feel fair — same rules for every player, leaderboard scores are directly comparable.
+3. Difficulty increases gradually with score, never hitting a wall.
+4. Players improve through practice, not through hidden assistance.
 
 ## Documentation
 
 - [`BLOCK_BLAST_MASTER_SPEC.md`](BLOCK_BLAST_MASTER_SPEC.md): research and reverse-engineering source document
-- [`docs/IMPLEMENTATION_HANDOFF.md`](docs/IMPLEMENTATION_HANDOFF.md): current implementation state, rationale, open issues, and next-step recommendations
+- [`docs/plans/`](docs/plans/): design documents and implementation plans

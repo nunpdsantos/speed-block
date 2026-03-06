@@ -24,26 +24,29 @@
 
 ## Repository Implementation Status (2026-03-06)
 
-This document is the research spec. The current repository implementation intentionally adds a stronger progression layer on top of the core Block Blast reference model.
+This document is the research spec. The current repository implementation intentionally adds a progression layer on top of the core Block Blast reference model, with a focus on fairness (same rules for all players, no hidden adaptation).
 
 Current repo status:
 
-- score-phased run pacing is implemented
-- piece generation is pool-based and pressure-aware
-- batch solvability checks are enabled in the current build
-- hidden cross-session adaptive tuning is implemented per difficulty
-- local run telemetry now distinguishes timeout pressure from board-lock pressure
-- passive score-tier framing exists in the HUD, but the main progression work is hidden inside pacing and generation
+- continuous score-phased difficulty curve (no step-function walls)
+- piece generation is pool-based with gradual per-piece unlocks as score increases
+- batch solvability checks are enabled (`ensureBatchSolvable: true`)
+- fixed board-fill rescue/threat weighting (same for all players)
+- near-miss highlights showing empty cells that would complete a line (7/8 filled)
+- passive score-tier framing (ROOKIE through LEGEND) in the HUD
+- opening grace period, dry-spell recovery, and low-time recovery (fixed per difficulty)
+
+Note: An earlier build had hidden cross-session adaptive tuning (AdaptiveProgression, RunTelemetry) that secretly adjusted difficulty per player. This was removed because it undermined leaderboard fairness.
 
 Primary implementation files:
 
-- `src/core/RunPacing.ts`
-- `src/core/PieceGenerator.ts`
-- `src/core/AdaptiveProgression.ts`
-- `src/core/RunTelemetry.ts`
-- `src/core/GameState.ts`
+- `src/core/RunPacing.ts` — continuous difficulty interpolation
+- `src/core/PieceGenerator.ts` — pool selection, rescue/threat weighting, solvability
+- `src/core/GameState.ts` — run loop and scoring
+- `src/core/Progression.ts` — score tiers
+- `src/core/Config.ts` — per-difficulty settings
 
-For the current engineering handoff and next-step recommendations, see `docs/IMPLEMENTATION_HANDOFF.md`.
+For design rationale and implementation details, see `docs/plans/`.
 
 ---
 
@@ -351,7 +354,7 @@ GENERATION_CONFIG = {
 }
 ```
 
-**Repository status (2026-03-06):** The current build now uses a weighted generator with opening / midgame / endgame pools, rescue weighting under pressure, delayed hard-shape unlocks, and per-difficulty adaptive tuning derived from recent local runs.
+**Repository status (2026-03-06):** The current build uses a weighted generator with gradual per-piece pool unlocks (new shapes trickle in one at a time as score increases), fixed board-fill rescue/threat weighting (same for all players), and batch solvability checks. No hidden per-player adaptive tuning.
 
 ### 4.3 Anti-Deadlock Rules
 

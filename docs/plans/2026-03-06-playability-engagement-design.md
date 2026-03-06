@@ -72,11 +72,12 @@ Keep from Codex (fixed per-difficulty, no adaptive multiplier):
 Current: `GridRenderer.updateNearMiss()` only triggers at exactly 7/8 filled, highlights entire row/column strip.
 
 New behavior:
-- Trigger at 6/8 AND 7/8 filled
+- Trigger only at 7/8 filled (exactly 1 cell remaining to clear)
 - Highlight only the empty cells in that row/column, not the whole strip
-- 7/8 gets brighter highlight (alpha 0.25) than 6/8 (alpha 0.12)
+- Pulsing amber highlight (alpha 0.25 ± 0.10)
 - Keep existing pulse animation, apply to individual cells
 - Empty cells glow amber to signal "place here to complete this line"
+- Every highlighted cell is a guaranteed "place here to clear" signal — no false positives
 
 ### 4. Gradual piece pool unlocks
 
@@ -133,7 +134,7 @@ Add `maxStatesExplored` counter to `isBatchSolvable()`:
 | `src/core/PieceGenerator.ts` | Modify: remove adaptive params, gradual unlocks, fixed rescue/threat, perf budget |
 | `src/core/GameState.ts` | Simplify: remove adaptive tuning param |
 | `src/main.ts` | Simplify: remove adaptive imports and calls |
-| `src/rendering/GridRenderer.ts` | Fix: near-miss highlights at 6/8+7/8, highlight empty cells |
+| `src/rendering/GridRenderer.ts` | Fix: near-miss highlights at 7/8 only, highlight empty cells |
 | `src/scenes/GameScene.ts` | Simplify: remove adaptive tuning passthrough |
 
 ## What we keep from Codex
