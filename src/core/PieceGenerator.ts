@@ -1,10 +1,8 @@
 import { PieceInstance, PieceType, PIECE_COLORS } from './types';
 import { ALL_PIECE_TYPES } from './PieceData';
 import { createPieceInstance, cellCount } from './Piece';
-import { AdaptiveTuning, DEFAULT_ADAPTIVE_TUNING } from './AdaptiveProgression';
 import { Board } from './Board';
 import { Difficulty, GenerationConfig } from './Config';
-import { getProgressTiers } from './Progression';
 
 const GRID_CELLS = 64; // 8x8
 const LARGE_THRESHOLD = 6; // pieces with 6+ cells count as "large"
@@ -18,17 +16,6 @@ const OPENING_POOL = new Set([
   't_shape',
   'zigzag',
   'square_2x2',
-]);
-const MIDGAME_UNLOCKS = new Set([
-  'pentomino_line',
-  'big_l',
-  'rectangle',
-  'diagonal_2',
-]);
-const ENDGAME_UNLOCKS = new Set([
-  'square_3x3',
-  'diagonal_3',
-  'big_rectangle',
 ]);
 const RESCUE_PIECES = new Set([
   'single',
@@ -45,6 +32,23 @@ const THREAT_PIECES = new Set([
   'big_l',
   'pentomino_line',
 ]);
+
+const CHILL_UNLOCKS: [string, number][] = [
+  ['pentomino_line', 3000],
+  ['big_l', 5000],
+  ['rectangle', 8000],
+  ['diagonal_2', 11000],
+  ['square_3x3', 18000],
+  ['diagonal_3', 25000],
+  ['big_rectangle', 35000],
+];
+
+const PIECE_UNLOCK_SCORES: Record<Difficulty, [string, number][]> = {
+  chill: CHILL_UNLOCKS,
+  fast: CHILL_UNLOCKS.map(([id, score]) => [id, Math.round(score * 0.7)]),
+  blitz: CHILL_UNLOCKS.map(([id, score]) => [id, Math.round(score * 0.45)]),
+};
+
 const MODE_WEIGHTS: Record<Difficulty, {
   rescueBias: number;
   threatBias: number;
@@ -100,7 +104,7 @@ export interface GenerationContext {
   score: number;
   movesSinceLastClear: number;
   timeRemainingFraction: number;
-  adaptiveTuning: AdaptiveTuning;
+  boardFillFraction: number;
 }
 
 export class PieceGenerator {
@@ -304,28 +308,38 @@ export class PieceGenerator {
       score: context?.score ?? 0,
       movesSinceLastClear: context?.movesSinceLastClear ?? 0,
       timeRemainingFraction: context?.timeRemainingFraction ?? 1,
-      adaptiveTuning: context?.adaptiveTuning ?? DEFAULT_ADAPTIVE_TUNING,
+      boardFillFraction: context?.boardFillFraction ?? 0,
     };
   }
 
   private getAvailableTypes(context: GenerationContext): PieceType[] {
-    const tiers = getProgressTiers(context.difficulty);
+    const unlocks = PIECE_UNLOCK_SCORES[context.difficulty];
     const pool = new Set<string>(OPENING_POOL);
-    const midUnlockScore = (tiers[2]?.minScore ?? 0) * context.adaptiveTuning.unlockDelayMultiplier;
-    const endUnlockScore = (tiers[4]?.minScore ?? 0) * context.adaptiveTuning.unlockDelayMultiplier;
-
-    if (context.score >= midUnlockScore) {
-      for (const id of MIDGAME_UNLOCKS) pool.add(id);
+    for (const [pieceId, unlockScore] of unlocks) {
+      if (context.score >= unlockScore) {
+        pool.add(pieceId);
+      }
     }
-    if (context.score >= endUnlockScore) {
-      for (const id of ENDGAME_UNLOCKS) pool.add(id);
-    }
-
     return ALL_PIECE_TYPES.filter(type => pool.has(type.id));
   }
 
   private getContextWeight(typeId: string, context: GenerationContext): number {
     const mode = MODE_WEIGHTS[context.difficulty];
+    const fill = context.boardFillFraction;
+
+    let rescueBoost = 1;
+    let threatDrop = 1;
+    if (fill >= 0.85) {
+      rescueBoost = 2.5;
+      threatDrop = 0.2;
+    } else if (fill >= 0.70) {
+      rescueBoost = 1.8;
+      threatDrop = 0.4;
+    } else if (fill >= 0.60) {
+      rescueBoost = 1.3;
+      threatDrop = 0.7;
+    }
+
     const underPressure =
       context.movesSinceLastClear >= mode.pressureMoves ||
       context.timeRemainingFraction <= mode.pressureTimeFraction;
@@ -333,8 +347,7 @@ export class PieceGenerator {
     let weight = 1;
 
     if (RESCUE_PIECES.has(typeId)) {
-      weight *= mode.rescueBias;
-      weight *= context.adaptiveTuning.rescueWeightMultiplier;
+      weight *= mode.rescueBias * rescueBoost;
       if (underPressure) {
         weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= mode.pressureMoves + 1
           ? mode.rescueCrisisBoost
@@ -343,8 +356,7 @@ export class PieceGenerator {
     }
 
     if (THREAT_PIECES.has(typeId)) {
-      weight *= mode.threatBias;
-      weight *= context.adaptiveTuning.threatWeightMultiplier;
+      weight *= mode.threatBias * threatDrop;
       if (underPressure) {
         weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= mode.pressureMoves + 1
           ? mode.threatCrisisDrop
@@ -356,26 +368,31 @@ export class PieceGenerator {
   }
 
   private isBatchSolvable(board: Board, batch: PieceInstance[]): boolean {
-    return this.canSolveBatch(board, batch, new Map<string, boolean>());
+    const budget = { remaining: 200 };
+    return this.canSolveBatch(board, batch, new Map<string, boolean>(), budget);
   }
 
   private canSolveBatch(
     board: Board,
     pieces: PieceInstance[],
     memo: Map<string, boolean>,
+    budget: { remaining: number },
   ): boolean {
     if (pieces.length === 0) return true;
+    if (budget.remaining <= 0) return true;
 
     const key = `${this.serializeBoard(board)}|${pieces.map(this.pieceKey).sort().join('|')}`;
     const cached = memo.get(key);
     if (cached !== undefined) return cached;
+
+    budget.remaining--;
 
     for (let i = 0; i < pieces.length; i++) {
       const piece = pieces[i];
       const rest = pieces.slice(0, i).concat(pieces.slice(i + 1));
       const states = this.getPlacementStates(board, piece);
       for (const nextBoard of states) {
-        if (this.canSolveBatch(nextBoard, rest, memo)) {
+        if (this.canSolveBatch(nextBoard, rest, memo, budget)) {
           memo.set(key, true);
           return true;
         }

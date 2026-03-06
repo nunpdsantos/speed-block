@@ -183,34 +183,48 @@ export class GridRenderer {
     g.stroke({ width: 2, color, alpha: alpha * 0.4 });
   }
 
-  /** Update near-miss highlight for rows/cols at 7/8 filled */
+  /** Update near-miss highlight: show empty cells in rows/cols at 6/8 or 7/8 filled */
   updateNearMiss(board: Board): void {
     const g = this.nearMissGraphics;
     g.clear();
     if (!this.layout) return;
 
-    const { gridOriginX, gridOriginY, cellSize, gridSize } = this.layout;
+    const { gridOriginX, gridOriginY, cellSize } = this.layout;
     this.nearMissPhase += 0.1;
-    const pulse = 0.15 + Math.sin(this.nearMissPhase * 4) * 0.1;
 
     // Check rows
     for (let r = 0; r < GRID_SIZE; r++) {
       const count = board.getRowFillCount(r);
-      if (count === GRID_SIZE - 1) {
-        // This row is 7/8 filled
-        const y = gridOriginY + r * cellSize;
-        g.rect(gridOriginX, y, gridSize, cellSize);
-        g.fill({ color: 0xf59e0b, alpha: pulse });
+      if (count === GRID_SIZE - 1 || count === GRID_SIZE - 2) {
+        const alpha = count === GRID_SIZE - 1
+          ? 0.25 + Math.sin(this.nearMissPhase * 4) * 0.10
+          : 0.12 + Math.sin(this.nearMissPhase * 4) * 0.06;
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (board.getCell(r, c) === null) {
+            const x = gridOriginX + c * cellSize;
+            const y = gridOriginY + r * cellSize;
+            g.roundRect(x + 1, y + 1, cellSize - 2, cellSize - 2, 2);
+            g.fill({ color: 0xf59e0b, alpha });
+          }
+        }
       }
     }
 
     // Check cols
     for (let c = 0; c < GRID_SIZE; c++) {
       const count = board.getColFillCount(c);
-      if (count === GRID_SIZE - 1) {
-        const x = gridOriginX + c * cellSize;
-        g.rect(x, gridOriginY, cellSize, gridSize);
-        g.fill({ color: 0xf59e0b, alpha: pulse });
+      if (count === GRID_SIZE - 1 || count === GRID_SIZE - 2) {
+        const alpha = count === GRID_SIZE - 1
+          ? 0.25 + Math.sin(this.nearMissPhase * 4) * 0.10
+          : 0.12 + Math.sin(this.nearMissPhase * 4) * 0.06;
+        for (let r = 0; r < GRID_SIZE; r++) {
+          if (board.getCell(r, c) === null) {
+            const x = gridOriginX + c * cellSize;
+            const y = gridOriginY + r * cellSize;
+            g.roundRect(x + 1, y + 1, cellSize - 2, cellSize - 2, 2);
+            g.fill({ color: 0xf59e0b, alpha });
+          }
+        }
       }
     }
   }

@@ -10,7 +10,6 @@ import { AnimationManager } from '../rendering/AnimationManager';
 import { FXManager } from '../rendering/FXManager';
 import { DragController, DragState } from '../input/DragController';
 import { AudioManager } from '../audio/AudioManager';
-import { AdaptiveTuning } from '../core/AdaptiveProgression';
 import { FeedbackEvent, RunSummary } from '../core/types';
 import { Difficulty, DIFFICULTY_LABELS, GameConfig } from '../core/Config';
 import { getProgressStatus } from '../core/Progression';
@@ -64,7 +63,6 @@ export class GameScene implements Scene {
     audioManager: AudioManager,
     config: GameConfig,
     difficulty: Difficulty,
-    adaptiveTuning: AdaptiveTuning,
     skipCountdown: boolean,
     onGameOver: (summary: RunSummary) => void,
     onQuit: () => void,
@@ -79,7 +77,7 @@ export class GameScene implements Scene {
     this.bgColorSetter = bgColorSetter || null;
     this.container = new Container();
 
-    this.gameState = new GameState(config, difficulty, adaptiveTuning);
+    this.gameState = new GameState(config, difficulty);
     this.gridRenderer = new GridRenderer();
     this.pieceRenderer = new PieceRenderer();
     this.ghostRenderer = new GhostRenderer();

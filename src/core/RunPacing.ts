@@ -1,14 +1,13 @@
-import { AdaptiveTuning, DEFAULT_ADAPTIVE_TUNING } from './AdaptiveProgression';
 import { Difficulty } from './Config';
 
-interface RunPhase {
-  minScore: number;
-  drainMultiplier: number;
-  drainAccelMultiplier: number;
-  timeBonusMultiplier: number;
-}
-
-interface RunPacingConfig {
+interface DifficultyRamp {
+  ceilingScore: number;
+  floorDrain: number;
+  ceilingDrain: number;
+  floorDrainAccel: number;
+  ceilingDrainAccel: number;
+  floorTimeBonus: number;
+  ceilingTimeBonus: number;
   graceSeconds: number;
   graceStartDrainMultiplier: number;
   drySpellMoveThreshold: number;
@@ -17,36 +16,35 @@ interface RunPacingConfig {
   lowTimeThresholdFraction: number;
   lowTimeDrainMultiplier: number;
   lowTimeTimeBonusBoost: number;
-  phases: RunPhase[];
 }
 
 export interface RunPacingState {
-  phaseIndex: number;
   drainMultiplier: number;
   drainAccelMultiplier: number;
   timeBonusMultiplier: number;
   recoveryActive: boolean;
 }
 
-const RUN_PACING: Record<Difficulty, RunPacingConfig> = {
+const RAMPS: Record<Difficulty, DifficultyRamp> = {
   chill: {
-    graceSeconds: 26,
-    graceStartDrainMultiplier: 0.66,
-    drySpellMoveThreshold: 4,
+    ceilingScore: 40000,
+    floorDrain: 0.80, ceilingDrain: 1.12,
+    floorDrainAccel: 0.15, ceilingDrainAccel: 1.10,
+    floorTimeBonus: 1.25, ceilingTimeBonus: 0.90,
+    graceSeconds: 22,
+    graceStartDrainMultiplier: 0.70,
+    drySpellMoveThreshold: 3,
     drySpellDrainMultiplier: 0.82,
-    drySpellTimeBonusMultiplier: 1.24,
-    lowTimeThresholdFraction: 0.18,
-    lowTimeDrainMultiplier: 0.8,
-    lowTimeTimeBonusBoost: 0.24,
-    phases: [
-      { minScore: 0, drainMultiplier: 0.8, drainAccelMultiplier: 0.16, timeBonusMultiplier: 1.26 },
-      { minScore: 2500, drainMultiplier: 0.88, drainAccelMultiplier: 0.4, timeBonusMultiplier: 1.14 },
-      { minScore: 7000, drainMultiplier: 0.96, drainAccelMultiplier: 0.68, timeBonusMultiplier: 1.04 },
-      { minScore: 15000, drainMultiplier: 1.04, drainAccelMultiplier: 0.95, timeBonusMultiplier: 0.96 },
-      { minScore: 30000, drainMultiplier: 1.1, drainAccelMultiplier: 1.05, timeBonusMultiplier: 0.92 },
-    ],
+    drySpellTimeBonusMultiplier: 1.20,
+    lowTimeThresholdFraction: 0.20,
+    lowTimeDrainMultiplier: 0.80,
+    lowTimeTimeBonusBoost: 0.22,
   },
   fast: {
+    ceilingScore: 30000,
+    floorDrain: 0.86, ceilingDrain: 1.16,
+    floorDrainAccel: 0.15, ceilingDrainAccel: 1.15,
+    floorTimeBonus: 1.20, ceilingTimeBonus: 0.88,
     graceSeconds: 18,
     graceStartDrainMultiplier: 0.78,
     drySpellMoveThreshold: 2,
@@ -55,32 +53,26 @@ const RUN_PACING: Record<Difficulty, RunPacingConfig> = {
     lowTimeThresholdFraction: 0.24,
     lowTimeDrainMultiplier: 0.82,
     lowTimeTimeBonusBoost: 0.18,
-    phases: [
-      { minScore: 0, drainMultiplier: 0.88, drainAccelMultiplier: 0.18, timeBonusMultiplier: 1.18 },
-      { minScore: 2500, drainMultiplier: 0.96, drainAccelMultiplier: 0.42, timeBonusMultiplier: 1.08 },
-      { minScore: 7500, drainMultiplier: 1.02, drainAccelMultiplier: 0.72, timeBonusMultiplier: 1.0 },
-      { minScore: 15000, drainMultiplier: 1.08, drainAccelMultiplier: 0.96, timeBonusMultiplier: 0.95 },
-      { minScore: 25000, drainMultiplier: 1.14, drainAccelMultiplier: 1.12, timeBonusMultiplier: 0.9 },
-    ],
   },
   blitz: {
-    graceSeconds: 10,
-    graceStartDrainMultiplier: 0.9,
+    ceilingScore: 20000,
+    floorDrain: 0.94, ceilingDrain: 1.22,
+    floorDrainAccel: 0.20, ceilingDrainAccel: 1.20,
+    floorTimeBonus: 1.14, ceilingTimeBonus: 0.86,
+    graceSeconds: 12,
+    graceStartDrainMultiplier: 0.86,
     drySpellMoveThreshold: 2,
     drySpellDrainMultiplier: 0.88,
-    drySpellTimeBonusMultiplier: 1.1,
-    lowTimeThresholdFraction: 0.22,
+    drySpellTimeBonusMultiplier: 1.12,
+    lowTimeThresholdFraction: 0.28,
     lowTimeDrainMultiplier: 0.86,
-    lowTimeTimeBonusBoost: 0.12,
-    phases: [
-      { minScore: 0, drainMultiplier: 0.94, drainAccelMultiplier: 0.28, timeBonusMultiplier: 1.16 },
-      { minScore: 1200, drainMultiplier: 1.03, drainAccelMultiplier: 0.58, timeBonusMultiplier: 1.06 },
-      { minScore: 3500, drainMultiplier: 1.1, drainAccelMultiplier: 0.88, timeBonusMultiplier: 0.98 },
-      { minScore: 7000, drainMultiplier: 1.18, drainAccelMultiplier: 1.1, timeBonusMultiplier: 0.9 },
-      { minScore: 12000, drainMultiplier: 1.24, drainAccelMultiplier: 1.22, timeBonusMultiplier: 0.84 },
-    ],
+    lowTimeTimeBonusBoost: 0.14,
   },
 };
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
 
 export function getRunPacing(
   difficulty: Difficulty,
@@ -88,58 +80,41 @@ export function getRunPacing(
   gameElapsed: number,
   movesSinceLastClear: number,
   timeRemainingFraction: number,
-  adaptiveTuning: AdaptiveTuning = DEFAULT_ADAPTIVE_TUNING,
 ): RunPacingState {
-  const config = RUN_PACING[difficulty];
-  const graceSeconds = config.graceSeconds * adaptiveTuning.openingGraceMultiplier;
+  const ramp = RAMPS[difficulty];
 
-  let phaseIndex = 0;
-  for (let i = 0; i < config.phases.length; i++) {
-    if (score >= config.phases[i].minScore) {
-      phaseIndex = i;
-    } else {
-      break;
-    }
-  }
+  // Continuous interpolation: t = (score / ceiling) ^ 0.65
+  const rawT = Math.min(score / ramp.ceilingScore, 1);
+  const t = Math.pow(rawT, 0.65);
 
-  const phase = config.phases[phaseIndex];
-  let drainMultiplier = phase.drainMultiplier * adaptiveTuning.basePressureMultiplier;
-  let drainAccelMultiplier = phase.drainAccelMultiplier;
-  let timeBonusMultiplier =
-    phase.timeBonusMultiplier * (1 + (1 - adaptiveTuning.basePressureMultiplier) * 0.65);
+  let drainMultiplier = lerp(ramp.floorDrain, ramp.ceilingDrain, t);
+  let drainAccelMultiplier = lerp(ramp.floorDrainAccel, ramp.ceilingDrainAccel, t);
+  let timeBonusMultiplier = lerp(ramp.floorTimeBonus, ramp.ceilingTimeBonus, t);
   let recoveryActive = false;
 
-  if (gameElapsed < graceSeconds) {
-    const t = Math.max(0, Math.min(gameElapsed / graceSeconds, 1));
-    drainMultiplier =
-      config.graceStartDrainMultiplier + (drainMultiplier - config.graceStartDrainMultiplier) * t;
-    drainAccelMultiplier *= t;
-    timeBonusMultiplier = Math.max(timeBonusMultiplier, 1.12 - t * 0.05);
+  // Opening grace: ease into full drain over the first N seconds
+  if (gameElapsed < ramp.graceSeconds) {
+    const graceT = Math.min(gameElapsed / ramp.graceSeconds, 1);
+    drainMultiplier = ramp.graceStartDrainMultiplier +
+      (drainMultiplier - ramp.graceStartDrainMultiplier) * graceT;
+    drainAccelMultiplier *= graceT;
+    timeBonusMultiplier = Math.max(timeBonusMultiplier, 1.12 - graceT * 0.05);
   }
 
-  if (movesSinceLastClear >= config.drySpellMoveThreshold) {
+  // Dry-spell recovery: ease drain when player can't clear
+  if (movesSinceLastClear >= ramp.drySpellMoveThreshold) {
     recoveryActive = true;
-    const drySpellDrainMultiplier = Math.max(
-      0.58,
-      1 - (1 - config.drySpellDrainMultiplier) * adaptiveTuning.recoveryMultiplier,
-    );
-    drainMultiplier *= drySpellDrainMultiplier;
-    timeBonusMultiplier *= 1 + (config.drySpellTimeBonusMultiplier - 1) * adaptiveTuning.recoveryMultiplier;
+    drainMultiplier *= ramp.drySpellDrainMultiplier;
+    timeBonusMultiplier *= ramp.drySpellTimeBonusMultiplier;
   }
 
-  if (timeRemainingFraction <= config.lowTimeThresholdFraction) {
+  // Low-time recovery: slight relief when near death
+  if (timeRemainingFraction <= ramp.lowTimeThresholdFraction) {
     recoveryActive = true;
-    const panicT = 1 - Math.max(timeRemainingFraction, 0) / config.lowTimeThresholdFraction;
-    const drainRelief = 1 - (1 - config.lowTimeDrainMultiplier) * panicT;
-    drainMultiplier *= drainRelief;
-    timeBonusMultiplier *= 1 + config.lowTimeTimeBonusBoost * panicT * adaptiveTuning.recoveryMultiplier;
+    const panicT = 1 - Math.max(timeRemainingFraction, 0) / ramp.lowTimeThresholdFraction;
+    drainMultiplier *= 1 - (1 - ramp.lowTimeDrainMultiplier) * panicT;
+    timeBonusMultiplier *= 1 + ramp.lowTimeTimeBonusBoost * panicT;
   }
 
-  return {
-    phaseIndex,
-    drainMultiplier,
-    drainAccelMultiplier,
-    timeBonusMultiplier,
-    recoveryActive,
-  };
+  return { drainMultiplier, drainAccelMultiplier, timeBonusMultiplier, recoveryActive };
 }

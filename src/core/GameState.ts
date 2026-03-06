@@ -1,5 +1,4 @@
 import { Board } from './Board';
-import { AdaptiveTuning, DEFAULT_ADAPTIVE_TUNING } from './AdaptiveProgression';
 import { PieceGenerator } from './PieceGenerator';
 import { ScoreEngine } from './ScoreEngine';
 import { Difficulty, GameConfig, DEFAULT_CONFIG } from './Config';
@@ -44,18 +43,15 @@ export class GameState {
 
   private generator: PieceGenerator;
   private scoreEngine: ScoreEngine;
-  private adaptiveTuning: AdaptiveTuning;
   readonly config: GameConfig;
   readonly difficulty: Difficulty;
 
   constructor(
     config: GameConfig = DEFAULT_CONFIG,
     difficulty: Difficulty = 'chill',
-    adaptiveTuning: AdaptiveTuning = DEFAULT_ADAPTIVE_TUNING,
   ) {
     this.config = config;
     this.difficulty = difficulty;
-    this.adaptiveTuning = adaptiveTuning;
     this.board = new Board();
     this.generator = new PieceGenerator(config.generation);
     this.scoreEngine = new ScoreEngine(config.scoring, config.timer);
@@ -267,7 +263,7 @@ export class GameState {
       score: this.score,
       movesSinceLastClear: this.movesSinceLastClear,
       timeRemainingFraction: this.maxTime > 0 ? this.timeRemaining / this.maxTime : 1,
-      adaptiveTuning: this.adaptiveTuning,
+      boardFillFraction: this.board.occupiedCount() / 64,
     };
   }
 
@@ -281,7 +277,6 @@ export class GameState {
       this.gameElapsed,
       movesSinceLastClear,
       timeRemainingFraction,
-      this.adaptiveTuning,
     );
   }
 
