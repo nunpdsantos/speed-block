@@ -37,6 +37,7 @@ export interface TimerConfig {
 
 export interface GenerationConfig {
   ensureLegalPlacement: boolean;
+  ensureBatchSolvable: boolean;
   maxRerollAttempts: number;
 }
 
@@ -63,6 +64,7 @@ const SHARED_SCORING: ScoringConfig = {
 
 const SHARED_GENERATION: GenerationConfig = {
   ensureLegalPlacement: true,
+  ensureBatchSolvable: true,
   maxRerollAttempts: 20,
 };
 

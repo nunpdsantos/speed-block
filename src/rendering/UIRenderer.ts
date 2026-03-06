@@ -1,6 +1,8 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { Layout } from './LayoutManager';
 import { FONT_DISPLAY, FONT_MONO, THEME } from './Theme';
+import { Difficulty } from '../core/Config';
+import { getProgressStatus } from '../core/Progression';
 
 export class UIRenderer {
   container: Container;
@@ -12,6 +14,8 @@ export class UIRenderer {
   private timerBarGfx: Graphics;
   private speedBarGfx: Graphics;
   private speedText: Text;
+  private rankText: Text;
+  private goalText: Text;
   private layout!: Layout;
 
   // Low-time pulse animation
@@ -92,13 +96,37 @@ export class UIRenderer {
       }),
     });
 
+    this.rankText = new Text({
+      text: '',
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 11,
+        fontWeight: '700',
+        fill: THEME.accent,
+        letterSpacing: 3,
+      }),
+    });
+
+    this.goalText = new Text({
+      text: '',
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 11,
+        fontWeight: '500',
+        fill: THEME.textMuted,
+        letterSpacing: 2,
+      }),
+    });
+
     this.timerBarGfx = new Graphics();
     this.speedBarGfx = new Graphics();
 
+    this.container.addChild(this.goalText);
     this.container.addChild(this.highScoreText);
     this.container.addChild(this.scoreLabelText);
     this.container.addChild(this.scoreText);
     this.container.addChild(this.streakText);
+    this.container.addChild(this.rankText);
     this.container.addChild(this.speedBarGfx);
     this.container.addChild(this.timerBarGfx);
     this.container.addChild(this.timerText);
@@ -124,6 +152,10 @@ export class UIRenderer {
     this.highScoreText.x = layout.width - 12;
     this.highScoreText.y = 10;
 
+    this.goalText.anchor.set(0, 0);
+    this.goalText.x = 12;
+    this.goalText.y = 10;
+
     // Timer text: left-aligned above the bar
     this.timerText.anchor.set(0, 1);
     this.timerText.x = layout.gridOriginX;
@@ -133,6 +165,10 @@ export class UIRenderer {
     this.speedText.anchor.set(1, 1);
     this.speedText.x = layout.gridOriginX + layout.gridSize;
     this.speedText.y = layout.gridOriginY - 14;
+
+    this.rankText.anchor.set(0.5, 0);
+    this.rankText.x = layout.width / 2;
+    this.rankText.y = layout.streakY + 22;
   }
 
   updateScore(score: number): void {
@@ -155,6 +191,21 @@ export class UIRenderer {
       this.highScoreText.visible = true;
     } else {
       this.highScoreText.visible = false;
+    }
+  }
+
+  updateProgress(difficulty: Difficulty, score: number): void {
+    const status = getProgressStatus(difficulty, score);
+    this.rankText.text = `TIER ${status.current.label}`;
+    this.rankText.style.fill = status.current.color;
+    this.rankText.visible = true;
+
+    if (status.next) {
+      this.goalText.text = `NEXT ${status.next.minScore.toLocaleString()}`;
+      this.goalText.visible = true;
+    } else {
+      this.goalText.text = 'TOP TIER';
+      this.goalText.visible = true;
     }
   }
 

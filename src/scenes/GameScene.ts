@@ -10,8 +10,10 @@ import { AnimationManager } from '../rendering/AnimationManager';
 import { FXManager } from '../rendering/FXManager';
 import { DragController, DragState } from '../input/DragController';
 import { AudioManager } from '../audio/AudioManager';
-import { FeedbackEvent } from '../core/types';
+import { AdaptiveTuning } from '../core/AdaptiveProgression';
+import { FeedbackEvent, RunSummary } from '../core/types';
 import { Difficulty, GameConfig } from '../core/Config';
+import { getProgressStatus } from '../core/Progression';
 import { FONT_DISPLAY, THEME } from '../rendering/Theme';
 
 type CountdownPhase = 'countdown' | 'playing' | 'gameOver';
@@ -30,7 +32,7 @@ export class GameScene implements Scene {
   private dragController: DragController;
   private audioManager: AudioManager;
   private canvas: HTMLCanvasElement;
-  private onGameOver: (score: number) => void;
+  private onGameOver: (summary: RunSummary) => void;
   private onQuit: () => void;
   private bgColorSetter: ((color: number) => void) | null = null;
 
@@ -48,6 +50,7 @@ export class GameScene implements Scene {
   // Critical time alerts
   private alertsFired = { ten: false, five: false, last: false };
   private lastTickSecond = -1;
+  private progressTierIndex = 0;
 
   // Game over sequence
   private gameOverSequenceActive = false;
@@ -59,7 +62,8 @@ export class GameScene implements Scene {
     audioManager: AudioManager,
     config: GameConfig,
     difficulty: Difficulty,
-    onGameOver: (score: number) => void,
+    adaptiveTuning: AdaptiveTuning,
+    onGameOver: (summary: RunSummary) => void,
     onQuit: () => void,
     bgColorSetter?: (color: number) => void,
   ) {
@@ -71,7 +75,7 @@ export class GameScene implements Scene {
     this.bgColorSetter = bgColorSetter || null;
     this.container = new Container();
 
-    this.gameState = new GameState(config, difficulty);
+    this.gameState = new GameState(config, difficulty, adaptiveTuning);
     this.gridRenderer = new GridRenderer();
     this.pieceRenderer = new PieceRenderer();
     this.ghostRenderer = new GhostRenderer();
@@ -132,6 +136,7 @@ export class GameScene implements Scene {
     this.uiRenderer.updateScore(this.gameState.score);
     this.uiRenderer.updateHighScore(this.gameState.highScore);
     this.uiRenderer.updateStreak(this.gameState.streakCount);
+    this.updateProgressPresentation(false);
 
     // Start countdown
     this.countdownPhase = 'countdown';
@@ -139,6 +144,7 @@ export class GameScene implements Scene {
     this.lastCountdownNumber = 4;
     this.alertsFired = { ten: false, five: false, last: false };
     this.lastTickSecond = -1;
+    this.progressTierIndex = getProgressStatus(this.gameState.difficulty, this.gameState.score).tierIndex;
     this.gameOverSequenceActive = false;
     this.gameOverElapsed = 0;
 
@@ -391,7 +397,7 @@ export class GameScene implements Scene {
     this.gameOverElapsed += dt;
     if (this.gameOverElapsed >= 1.2) {
       this.gameOverSequenceActive = false;
-      this.onGameOver(this.gameState.score);
+      this.onGameOver(this.gameState.buildRunSummary());
     }
   }
 
@@ -463,7 +469,7 @@ export class GameScene implements Scene {
     this.removePauseOverlay();
     this.audioManager.stopPulse();
     if (this.gameState.score > 0) {
-      this.onGameOver(this.gameState.score);
+      this.onGameOver(this.gameState.buildRunSummary('quit'));
     } else {
       this.onQuit();
     }
@@ -702,7 +708,7 @@ export class GameScene implements Scene {
           }
 
           // Update score display (placement points)
-          this.uiRenderer.updateScore(this.gameState.score);
+          this.updateProgressPresentation(true);
 
           // Streak broken
           if (event.streakBroken) {
@@ -742,7 +748,7 @@ export class GameScene implements Scene {
             this.showTimeBonusPopup(event.timeBonus, true);
           }
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
-          this.uiRenderer.updateScore(this.gameState.score);
+          this.updateProgressPresentation(true);
           this.uiRenderer.updateStreak(this.gameState.streakCount);
           this.fxManager.updateFlowState(this.gameState.streakCount);
           break;
@@ -802,7 +808,7 @@ export class GameScene implements Scene {
           }
           this.animationManager.showStreakPopup(this.gameState.streakCount);
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
-          this.uiRenderer.updateScore(this.gameState.score);
+          this.updateProgressPresentation(true);
           this.uiRenderer.updateStreak(this.gameState.streakCount);
           this.fxManager.updateFlowState(this.gameState.streakCount);
           break;
@@ -835,5 +841,17 @@ export class GameScene implements Scene {
           break;
       }
     }
+  }
+
+  private updateProgressPresentation(announceTier: boolean): void {
+    this.uiRenderer.updateScore(this.gameState.score);
+    this.uiRenderer.updateProgress(this.gameState.difficulty, this.gameState.score);
+
+    const status = getProgressStatus(this.gameState.difficulty, this.gameState.score);
+    if (announceTier && status.tierIndex > this.progressTierIndex) {
+      this.showCenterAlert(`${status.current.label} TIER`);
+      this.audioManager.playAlertChime();
+    }
+    this.progressTierIndex = status.tierIndex;
   }
 }

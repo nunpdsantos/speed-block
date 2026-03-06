@@ -1,8 +1,10 @@
 import { Board } from './Board';
+import { AdaptiveTuning, DEFAULT_ADAPTIVE_TUNING } from './AdaptiveProgression';
 import { PieceGenerator } from './PieceGenerator';
 import { ScoreEngine } from './ScoreEngine';
 import { Difficulty, GameConfig, DEFAULT_CONFIG } from './Config';
-import { PieceInstance, FeedbackEvent, ClearResult } from './types';
+import { getRunPacing } from './RunPacing';
+import { PieceInstance, FeedbackEvent, ClearResult, RunEndCause, RunSummary } from './types';
 
 /** Read the cached top score from localStorage for a given difficulty */
 function readCachedTopScore(difficulty: Difficulty): number {
@@ -33,15 +35,27 @@ export class GameState {
   gameElapsed: number = 0;
   /** Current drain rate multiplier */
   drainRate: number = 1;
+  deathCause: RunEndCause | null = null;
+  totalTurns: number = 0;
+  clearTurns: number = 0;
+  maxStreak: number = 0;
+  maxDrySpell: number = 0;
+  peakBoardFillCount: number = 0;
 
   private generator: PieceGenerator;
   private scoreEngine: ScoreEngine;
+  private adaptiveTuning: AdaptiveTuning;
   readonly config: GameConfig;
   readonly difficulty: Difficulty;
 
-  constructor(config: GameConfig = DEFAULT_CONFIG, difficulty: Difficulty = 'chill') {
+  constructor(
+    config: GameConfig = DEFAULT_CONFIG,
+    difficulty: Difficulty = 'chill',
+    adaptiveTuning: AdaptiveTuning = DEFAULT_ADAPTIVE_TUNING,
+  ) {
     this.config = config;
     this.difficulty = difficulty;
+    this.adaptiveTuning = adaptiveTuning;
     this.board = new Board();
     this.generator = new PieceGenerator(config.generation);
     this.scoreEngine = new ScoreEngine(config.scoring, config.timer);
@@ -75,7 +89,13 @@ export class GameState {
     this.pieceElapsed = 0;
     this.gameElapsed = 0;
     this.drainRate = 1;
-    const batch = this.generator.generateBatch(this.board);
+    this.deathCause = null;
+    this.totalTurns = 0;
+    this.clearTurns = 0;
+    this.maxStreak = 0;
+    this.maxDrySpell = 0;
+    this.peakBoardFillCount = 0;
+    const batch = this.generator.generateBatch(this.board, this.getGenerationContext());
     this.activePieces = [...batch];
     return { type: 'newBatch', newBatch: batch };
   }
@@ -87,12 +107,17 @@ export class GameState {
     this.pieceElapsed += dt;
     this.gameElapsed += dt;
 
-    // Accelerating drain
-    this.drainRate = 1 + (this.gameElapsed / 60) * this.config.timer.drainAccelPerMinute;
+    const pacing = this.getRunPacing();
+    this.drainRate = Math.max(
+      0.55,
+      pacing.drainMultiplier +
+      (this.gameElapsed / 60) * this.config.timer.drainAccelPerMinute * pacing.drainAccelMultiplier,
+    );
     this.timeRemaining = Math.max(0, this.timeRemaining - dt * this.drainRate);
 
     if (this.timeRemaining <= 0) {
       this.isGameOver = true;
+      this.deathCause = 'timeout';
       return true;
     }
     return false;
@@ -109,6 +134,9 @@ export class GameState {
     const events: FeedbackEvent[] = [];
     const piece = this.activePieces[pieceIndex];
     if (!piece || this.isGameOver) return events;
+    const preMoveMovesSinceLastClear = this.movesSinceLastClear;
+    const preMoveTimeRemainingFraction = this.maxTime > 0 ? this.timeRemaining / this.maxTime : 1;
+    this.totalTurns++;
 
     // 1. Validate
     if (!this.board.canPlace(piece.shape, row, col)) return events;
@@ -135,9 +163,11 @@ export class GameState {
 
     // 6. Update combo state BEFORE scoring
     if (clearResult.totalLinesCleared > 0) {
+      this.clearTurns++;
       this.movesSinceLastClear = 0;
     } else {
       this.movesSinceLastClear++;
+      this.maxDrySpell = Math.max(this.maxDrySpell, this.movesSinceLastClear);
       if (this.movesSinceLastClear >= this.config.scoring.comboWindowPlacements) {
         if (this.streakCount >= 3) {
           events[0].streakBroken = true;
@@ -158,7 +188,9 @@ export class GameState {
       this.streakCount,
       speedFraction,
     );
-    this.addTime(timeBonus);
+    const pacing = this.getRunPacing(preMoveMovesSinceLastClear, preMoveTimeRemainingFraction);
+    const tunedTimeBonus = Math.round(timeBonus * pacing.timeBonusMultiplier * 10) / 10;
+    this.addTime(tunedTimeBonus);
 
     // 9. Award placement points (per block placed)
     const placementPoints = placedCells.length * this.config.scoring.pointsPerBlockPlaced;
@@ -175,30 +207,37 @@ export class GameState {
       breakdown.totalScore = this.score;
 
       this.streakCount++;
+      this.maxStreak = Math.max(this.maxStreak, this.streakCount);
       events.push({
         type: clearResult.totalLinesCleared >= 2 ? 'combo' : 'clear',
         clearResult,
         scoreBreakdown: breakdown,
         streakCount: this.streakCount,
-        timeBonus,
+        timeBonus: tunedTimeBonus,
       });
 
       if (isBoardClear) {
-        events.push({ type: 'boardClear', isBoardClear: true, scoreBreakdown: breakdown, timeBonus });
+        events.push({
+          type: 'boardClear',
+          isBoardClear: true,
+          scoreBreakdown: breakdown,
+          timeBonus: tunedTimeBonus,
+        });
       }
     } else {
       // No clear — still emit timeBonus for the placement
-      events[0].timeBonus = timeBonus;
+      events[0].timeBonus = tunedTimeBonus;
     }
 
     // 10. Mark piece as placed
     this.activePieces[pieceIndex] = null;
     this.piecesPlacedInBatch++;
+    this.peakBoardFillCount = Math.max(this.peakBoardFillCount, this.board.occupiedCount());
 
     // 11. Generate new batch if all 3 placed
     if (this.piecesPlacedInBatch >= 3) {
       this.piecesPlacedInBatch = 0;
-      const newBatch = this.generator.generateBatch(this.board);
+      const newBatch = this.generator.generateBatch(this.board, this.getGenerationContext());
       this.activePieces = [...newBatch];
       events.push({ type: 'newBatch', newBatch });
     }
@@ -206,6 +245,7 @@ export class GameState {
     // 12. Check game over (no valid placement)
     if (this.checkGameOver()) {
       this.isGameOver = true;
+      this.deathCause = 'board_lock';
       events.push({ type: 'gameOver', isGameOver: true });
     }
 
@@ -219,5 +259,44 @@ export class GameState {
       if (this.board.canPlaceAnywhere(piece.shape)) return false;
     }
     return true;
+  }
+
+  private getGenerationContext() {
+    return {
+      difficulty: this.difficulty,
+      score: this.score,
+      movesSinceLastClear: this.movesSinceLastClear,
+      timeRemainingFraction: this.maxTime > 0 ? this.timeRemaining / this.maxTime : 1,
+      adaptiveTuning: this.adaptiveTuning,
+    };
+  }
+
+  private getRunPacing(
+    movesSinceLastClear: number = this.movesSinceLastClear,
+    timeRemainingFraction: number = this.maxTime > 0 ? this.timeRemaining / this.maxTime : 1,
+  ) {
+    return getRunPacing(
+      this.difficulty,
+      this.score,
+      this.gameElapsed,
+      movesSinceLastClear,
+      timeRemainingFraction,
+      this.adaptiveTuning,
+    );
+  }
+
+  buildRunSummary(endCauseOverride?: RunEndCause): RunSummary {
+    return {
+      score: this.score,
+      endCause: endCauseOverride ?? this.deathCause ?? 'board_lock',
+      totalTurns: this.totalTurns,
+      clearTurns: this.clearTurns,
+      maxStreak: this.maxStreak,
+      maxDrySpell: this.maxDrySpell,
+      gameElapsed: this.gameElapsed,
+      timeRemaining: this.timeRemaining,
+      boardFillFraction: this.board.occupiedCount() / 64,
+      peakBoardFillFraction: this.peakBoardFillCount / 64,
+    };
   }
 }

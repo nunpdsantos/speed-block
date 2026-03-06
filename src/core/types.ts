@@ -50,6 +50,21 @@ export interface ScoreBreakdown {
   totalScore: number;
 }
 
+export type RunEndCause = 'timeout' | 'board_lock' | 'quit';
+
+export interface RunSummary {
+  score: number;
+  endCause: RunEndCause;
+  totalTurns: number;
+  clearTurns: number;
+  maxStreak: number;
+  maxDrySpell: number;
+  gameElapsed: number;
+  timeRemaining: number;
+  boardFillFraction: number;
+  peakBoardFillFraction: number;
+}
+
 // ── Feedback event: the contract between core → rendering ──
 export interface FeedbackEvent {
   type: 'place' | 'clear' | 'combo' | 'gameOver' | 'newBatch' | 'boardClear' | 'timeUp';

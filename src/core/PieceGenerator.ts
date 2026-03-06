@@ -1,11 +1,50 @@
 import { PieceInstance, PieceType, PIECE_COLORS } from './types';
 import { ALL_PIECE_TYPES } from './PieceData';
 import { createPieceInstance, cellCount } from './Piece';
+import { AdaptiveTuning, DEFAULT_ADAPTIVE_TUNING } from './AdaptiveProgression';
 import { Board } from './Board';
-import { GenerationConfig } from './Config';
+import { Difficulty, GenerationConfig } from './Config';
+import { getProgressTiers } from './Progression';
 
 const GRID_CELLS = 64; // 8x8
 const LARGE_THRESHOLD = 6; // pieces with 6+ cells count as "large"
+const OPENING_POOL = new Set([
+  'single',
+  'domino',
+  'tromino_line',
+  'small_corner',
+  'tetromino_line',
+  'small_l',
+  't_shape',
+  'zigzag',
+  'square_2x2',
+]);
+const MIDGAME_UNLOCKS = new Set([
+  'pentomino_line',
+  'big_l',
+  'rectangle',
+  'diagonal_2',
+]);
+const ENDGAME_UNLOCKS = new Set([
+  'square_3x3',
+  'diagonal_3',
+  'big_rectangle',
+]);
+const RESCUE_PIECES = new Set([
+  'single',
+  'domino',
+  'tromino_line',
+  'small_corner',
+  'square_2x2',
+  'diagonal_2',
+]);
+const THREAT_PIECES = new Set([
+  'square_3x3',
+  'big_rectangle',
+  'rectangle',
+  'big_l',
+  'pentomino_line',
+]);
 
 /** Placement fitness for a piece type on the current board */
 interface TypeFitness {
@@ -13,6 +52,14 @@ interface TypeFitness {
   size: number;
   totalPlacements: number; // sum of placements across all variants
   bestVariantPlacements: number; // max placements of any single variant
+}
+
+export interface GenerationContext {
+  difficulty: Difficulty;
+  score: number;
+  movesSinceLastClear: number;
+  timeRemainingFraction: number;
+  adaptiveTuning: AdaptiveTuning;
 }
 
 export class PieceGenerator {
@@ -23,33 +70,43 @@ export class PieceGenerator {
   }
 
   /** Generate a batch of 3 pieces, balanced by board state and gap shapes */
-  generateBatch(board: Board): PieceInstance[] {
+  generateBatch(board: Board, context?: GenerationContext): PieceInstance[] {
     const fillRatio = board.occupiedCount() / GRID_CELLS;
+    const normalizedContext = this.normalizeContext(context);
+    const availableTypes = this.getAvailableTypes(normalizedContext);
 
     // Analyze the board once — how well does each piece type fit?
-    const fitness = this.analyzeFitness(board);
+    const fitness = this.analyzeFitness(board, availableTypes);
 
     // Try budget-balanced, spatially-aware batch where all 3 are placeable
     for (let attempt = 0; attempt < 30; attempt++) {
-      const batch = this.smartBatch(fillRatio, fitness, board);
-      if (batch.length === 3 && this.allPlaceable(board, batch)) return batch;
+      const batch = this.smartBatch(fillRatio, fitness, availableTypes, normalizedContext);
+      if (this.isAcceptableBatch(board, batch)) return batch;
     }
 
     // Fallback: budget-balanced, at least one placeable
     for (let attempt = 0; attempt < 20; attempt++) {
-      const batch = this.smartBatch(fillRatio, fitness, board);
-      if (batch.length === 3 && batch.some(p => board.canPlaceAnywhere(p.shape))) {
+      const batch = this.smartBatch(fillRatio, fitness, availableTypes, normalizedContext);
+      if (this.isPlayableBatch(board, batch)) {
         return batch;
       }
     }
 
     // Last resort: pure random with at least one placeable
     for (let attempt = 0; attempt < this.config.maxRerollAttempts; attempt++) {
-      const batch = [this.randomPiece(), this.randomPiece(), this.randomPiece()];
-      if (batch.some(p => board.canPlaceAnywhere(p.shape))) return batch;
+      const batch = [
+        this.randomPiece(availableTypes),
+        this.randomPiece(availableTypes),
+        this.randomPiece(availableTypes),
+      ];
+      if (this.isPlayableBatch(board, batch)) return batch;
     }
 
-    return [this.randomPiece(), this.randomPiece(), this.randomPiece()];
+    return [
+      this.randomPiece(availableTypes),
+      this.randomPiece(availableTypes),
+      this.randomPiece(availableTypes),
+    ];
   }
 
   /**
@@ -57,9 +114,9 @@ export class PieceGenerator {
    * across all its variants. This tells us which shapes actually
    * match the board's available gaps.
    */
-  private analyzeFitness(board: Board): Map<string, TypeFitness> {
+  private analyzeFitness(board: Board, pieceTypes: PieceType[]): Map<string, TypeFitness> {
     const map = new Map<string, TypeFitness>();
-    for (const type of ALL_PIECE_TYPES) {
+    for (const type of pieceTypes) {
       let totalPlacements = 0;
       let bestVariantPlacements = 0;
       for (const variant of type.variants) {
@@ -96,7 +153,8 @@ export class PieceGenerator {
   private smartBatch(
     fillRatio: number,
     fitness: Map<string, TypeFitness>,
-    _board: Board,
+    pieceTypes: PieceType[],
+    context: GenerationContext,
   ): PieceInstance[] {
     const budget = this.getCellBudget(fillRatio);
     const pieces: PieceInstance[] = [];
@@ -109,7 +167,7 @@ export class PieceGenerator {
       const targetSize = remaining / slotsLeft;
 
       // Filter eligible piece types
-      const eligible = ALL_PIECE_TYPES.filter(t => {
+      const eligible = pieceTypes.filter(t => {
         if (usedTypes.has(t.id)) return false;
         const f = fitness.get(t.id)!;
         // Must actually fit somewhere on the board
@@ -125,13 +183,13 @@ export class PieceGenerator {
 
       const pool = eligible.length > 0
         ? eligible
-        : ALL_PIECE_TYPES.filter(t =>
+        : pieceTypes.filter(t =>
             !usedTypes.has(t.id) && fitness.get(t.id)!.bestVariantPlacements > 0
           );
 
       if (pool.length === 0) break;
 
-      const type = this.spatialWeightedSelect(pool, targetSize, fitness);
+      const type = this.spatialWeightedSelect(pool, targetSize, fitness, context);
       const piece = this.pieceFromType(type);
       pieces.push(piece);
       usedTypes.add(type.id);
@@ -158,13 +216,15 @@ export class PieceGenerator {
     types: PieceType[],
     targetSize: number,
     fitness: Map<string, TypeFitness>,
+    context: GenerationContext,
   ): PieceType {
     const weights = types.map(t => {
       const f = fitness.get(t.id)!;
       const sizeDist = Math.abs(f.size - targetSize);
       const sizeWeight = 1 / (1 + sizeDist * sizeDist);
       const fitWeight = Math.sqrt(f.totalPlacements + 1);
-      return sizeWeight * fitWeight;
+      const contextWeight = this.getContextWeight(t.id, context);
+      return sizeWeight * fitWeight * contextWeight;
     });
 
     const totalWeight = weights.reduce((a, b) => a + b, 0);
@@ -183,6 +243,149 @@ export class PieceGenerator {
     return batch.every(p => board.canPlaceAnywhere(p.shape));
   }
 
+  private isAcceptableBatch(board: Board, batch: PieceInstance[]): boolean {
+    if (!this.isPlayableBatch(board, batch)) return false;
+    if (!this.config.ensureBatchSolvable) return true;
+    return this.isBatchSolvable(board, batch);
+  }
+
+  private isPlayableBatch(board: Board, batch: PieceInstance[]): boolean {
+    if (batch.length !== 3) return false;
+    if (this.config.ensureLegalPlacement) {
+      return this.allPlaceable(board, batch);
+    }
+    return batch.some(p => board.canPlaceAnywhere(p.shape));
+  }
+
+  private normalizeContext(context?: GenerationContext): GenerationContext {
+    return {
+      difficulty: context?.difficulty ?? 'fast',
+      score: context?.score ?? 0,
+      movesSinceLastClear: context?.movesSinceLastClear ?? 0,
+      timeRemainingFraction: context?.timeRemainingFraction ?? 1,
+      adaptiveTuning: context?.adaptiveTuning ?? DEFAULT_ADAPTIVE_TUNING,
+    };
+  }
+
+  private getAvailableTypes(context: GenerationContext): PieceType[] {
+    const tiers = getProgressTiers(context.difficulty);
+    const pool = new Set<string>(OPENING_POOL);
+    const midUnlockScore = (tiers[2]?.minScore ?? 0) * context.adaptiveTuning.unlockDelayMultiplier;
+    const endUnlockScore = (tiers[4]?.minScore ?? 0) * context.adaptiveTuning.unlockDelayMultiplier;
+
+    if (context.score >= midUnlockScore) {
+      for (const id of MIDGAME_UNLOCKS) pool.add(id);
+    }
+    if (context.score >= endUnlockScore) {
+      for (const id of ENDGAME_UNLOCKS) pool.add(id);
+    }
+
+    return ALL_PIECE_TYPES.filter(type => pool.has(type.id));
+  }
+
+  private getContextWeight(typeId: string, context: GenerationContext): number {
+    const underPressure =
+      context.movesSinceLastClear >= 2 || context.timeRemainingFraction <= 0.25;
+
+    let weight = 1;
+
+    if (RESCUE_PIECES.has(typeId)) {
+      weight *= context.adaptiveTuning.rescueWeightMultiplier;
+      if (underPressure) {
+        weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= 3
+          ? 3.2
+          : 2.1;
+      }
+    }
+
+    if (THREAT_PIECES.has(typeId)) {
+      weight *= context.adaptiveTuning.threatWeightMultiplier;
+      if (underPressure) {
+        weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= 3
+          ? 0.18
+          : 0.45;
+      }
+    }
+
+    return weight;
+  }
+
+  private isBatchSolvable(board: Board, batch: PieceInstance[]): boolean {
+    return this.canSolveBatch(board, batch, new Map<string, boolean>());
+  }
+
+  private canSolveBatch(
+    board: Board,
+    pieces: PieceInstance[],
+    memo: Map<string, boolean>,
+  ): boolean {
+    if (pieces.length === 0) return true;
+
+    const key = `${this.serializeBoard(board)}|${pieces.map(this.pieceKey).sort().join('|')}`;
+    const cached = memo.get(key);
+    if (cached !== undefined) return cached;
+
+    for (let i = 0; i < pieces.length; i++) {
+      const piece = pieces[i];
+      const rest = pieces.slice(0, i).concat(pieces.slice(i + 1));
+      const states = this.getPlacementStates(board, piece);
+      for (const nextBoard of states) {
+        if (this.canSolveBatch(nextBoard, rest, memo)) {
+          memo.set(key, true);
+          return true;
+        }
+      }
+    }
+
+    memo.set(key, false);
+    return false;
+  }
+
+  private getPlacementStates(board: Board, piece: PieceInstance): Board[] {
+    const states: { nextBoard: Board; linesCleared: number; occupied: number }[] = [];
+
+    for (let row = 0; row <= 8 - piece.rows; row++) {
+      for (let col = 0; col <= 8 - piece.cols; col++) {
+        if (!board.canPlace(piece.shape, row, col)) continue;
+        const nextBoard = this.cloneBoard(board);
+        nextBoard.place(piece.shape, row, col, piece.color);
+        const completed = nextBoard.findCompleted();
+        let linesCleared = 0;
+        if (completed.rows.length > 0 || completed.cols.length > 0) {
+          const clearResult = nextBoard.clearLines(completed);
+          linesCleared = clearResult.totalLinesCleared;
+        }
+        states.push({
+          nextBoard,
+          linesCleared,
+          occupied: nextBoard.occupiedCount(),
+        });
+      }
+    }
+
+    states.sort((a, b) => {
+      if (b.linesCleared !== a.linesCleared) return b.linesCleared - a.linesCleared;
+      return a.occupied - b.occupied;
+    });
+
+    return states.map(state => state.nextBoard);
+  }
+
+  private cloneBoard(board: Board): Board {
+    const next = new Board();
+    next.grid = board.grid.map(row => [...row]);
+    return next;
+  }
+
+  private serializeBoard(board: Board): string {
+    return board.grid
+      .map(row => row.map(cell => (cell === null ? '.' : '#')).join(''))
+      .join('/');
+  }
+
+  private pieceKey = (piece: PieceInstance): string =>
+    `${piece.typeId}:${JSON.stringify(piece.shape)}`;
+
   /** Create a random PieceInstance from a PieceType */
   private pieceFromType(type: PieceType): PieceInstance {
     const variant = type.variants[Math.floor(Math.random() * type.variants.length)];
@@ -191,8 +394,9 @@ export class PieceGenerator {
   }
 
   /** Fully random piece (no weighting) */
-  private randomPiece(): PieceInstance {
-    const type = ALL_PIECE_TYPES[Math.floor(Math.random() * ALL_PIECE_TYPES.length)];
+  private randomPiece(pieceTypes: PieceType[]): PieceInstance {
+    const pool = pieceTypes.length > 0 ? pieceTypes : ALL_PIECE_TYPES;
+    const type = pool[Math.floor(Math.random() * pool.length)];
     return this.pieceFromType(type);
   }
 }

@@ -5,8 +5,10 @@ import { MenuScene } from './scenes/MenuScene';
 import { GameScene } from './scenes/GameScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { AudioManager } from './audio/AudioManager';
+import { getAdaptiveTuning, recordAdaptiveRun } from './core/AdaptiveProgression';
 import { Leaderboard } from './core/Leaderboard';
 import { Difficulty, DIFFICULTY_CONFIGS } from './core/Config';
+import { RunSummary } from './core/types';
 
 async function boot() {
   const container = document.getElementById('game-container')!;
@@ -52,24 +54,29 @@ async function boot() {
 
   function startGame() {
     const config = DIFFICULTY_CONFIGS[selectedDifficulty];
+    const adaptiveTuning = getAdaptiveTuning(selectedDifficulty);
     const gameScene = new GameScene(
       app.canvas,
       layoutManager,
       audioManager,
       config,
       selectedDifficulty,
-      (score) => showGameOver(score),
+      adaptiveTuning,
+      (summary) => showGameOver(summary),
       () => showMenu(),
       setBgColor,
     );
     sceneManager.switchTo(gameScene);
   }
 
-  function showGameOver(score: number) {
+  function showGameOver(summary: RunSummary) {
+    if (summary.score > 0 && summary.endCause !== 'quit') {
+      recordAdaptiveRun(selectedDifficulty, summary);
+    }
     const layout = layoutManager.layout;
     const gameOver = new GameOverScene(
       layout.width, layout.height,
-      score,
+      summary.score,
       leaderboard,
       selectedDifficulty,
       () => startGame(),
