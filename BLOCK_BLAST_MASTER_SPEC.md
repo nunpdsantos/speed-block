@@ -22,6 +22,31 @@
 
 ---
 
+## Repository Implementation Status (2026-03-06)
+
+This document is the research spec. The current repository implementation intentionally adds a stronger progression layer on top of the core Block Blast reference model.
+
+Current repo status:
+
+- score-phased run pacing is implemented
+- piece generation is pool-based and pressure-aware
+- batch solvability checks are enabled in the current build
+- hidden cross-session adaptive tuning is implemented per difficulty
+- local run telemetry now distinguishes timeout pressure from board-lock pressure
+- passive score-tier framing exists in the HUD, but the main progression work is hidden inside pacing and generation
+
+Primary implementation files:
+
+- `src/core/RunPacing.ts`
+- `src/core/PieceGenerator.ts`
+- `src/core/AdaptiveProgression.ts`
+- `src/core/RunTelemetry.ts`
+- `src/core/GameState.ts`
+
+For the current engineering handoff and next-step recommendations, see `docs/IMPLEMENTATION_HANDOFF.md`.
+
+---
+
 ## 1. CORE MECHANICS
 
 ### 1.1 Grid
@@ -326,9 +351,13 @@ GENERATION_CONFIG = {
 }
 ```
 
+**Repository status (2026-03-06):** The current build now uses a weighted generator with opening / midgame / endgame pools, rescue weighting under pressure, delayed hard-shape unlocks, and per-difficulty adaptive tuning derived from recent local runs.
+
 ### 4.3 Anti-Deadlock Rules
 
 **[UNKNOWN]** Whether the official game guarantees at least one legal placement among the 3 offered pieces. Some player frustration posts suggest it does NOT always guarantee this (game over can be forced by the batch). Other sources suggest a soft guarantee exists. Implement as a toggle.
+
+**Repository status (2026-03-06):** The current build enables both `ensureLegalPlacement` and `ensureBatchSolvable`, so trays are intentionally safer than a pure-random recreation.
 
 ---
 
@@ -701,6 +730,8 @@ Compare against benchmark gameplay traces:
 ---
 
 ## 16. GAP CLOSURE: INSTRUMENTATION PLAN
+
+**Repository status (2026-03-06):** The current build already records local per-run telemetry in browser storage, including end cause, score band reached, clear rate, dry-spell ratio, board fill at death, and peak board fill. This is enough for local adaptive tuning, but not enough for product analytics or remote balancing.
 
 To resolve remaining unknowns, record actual gameplay data using this schema:
 

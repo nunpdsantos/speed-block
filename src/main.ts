@@ -42,7 +42,7 @@ async function boot() {
         selectedDifficulty = difficulty;
         leaderboard.switchDifficulty(difficulty);
       },
-      () => startGame(),
+      () => startGame(false),
     );
     sceneManager.switchTo(menu);
   }
@@ -52,7 +52,7 @@ async function boot() {
     app.renderer.background.color = color;
   }
 
-  function startGame() {
+  function startGame(skipCountdown: boolean = false) {
     const config = DIFFICULTY_CONFIGS[selectedDifficulty];
     const adaptiveTuning = getAdaptiveTuning(selectedDifficulty);
     const gameScene = new GameScene(
@@ -62,6 +62,7 @@ async function boot() {
       config,
       selectedDifficulty,
       adaptiveTuning,
+      skipCountdown,
       (summary) => showGameOver(summary),
       () => showMenu(),
       setBgColor,
@@ -79,7 +80,7 @@ async function boot() {
       summary.score,
       leaderboard,
       selectedDifficulty,
-      () => startGame(),
+      () => startGame(true),
       () => showMenu(),
     );
     sceneManager.switchTo(gameOver);

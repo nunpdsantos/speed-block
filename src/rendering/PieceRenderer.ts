@@ -14,7 +14,7 @@ interface TrailPos {
 
 export class PieceRenderer {
   container: Container;
-  private trayPieces: Container[] = [];
+  private trayPieces: Array<Container | null> = [null, null, null];
   private dragPiece: Graphics;
   private trailGraphics: Graphics;
   private selectionHighlight: Graphics;
@@ -44,10 +44,11 @@ export class PieceRenderer {
   /** Draw the 3 pieces in the tray */
   drawTray(pieces: (PieceInstance | null)[]): void {
     for (const p of this.trayPieces) {
+      if (!p) continue;
       this.container.removeChild(p);
       p.destroy();
     }
-    this.trayPieces = [];
+    this.trayPieces = [null, null, null];
 
     const { trayOriginX, trayOriginY, trayWidth, trayHeight, trayCellSize } = this.layout;
     const slotWidth = trayWidth / 3;
@@ -94,7 +95,7 @@ export class PieceRenderer {
       }
 
       this.container.addChild(slotContainer);
-      this.trayPieces.push(slotContainer);
+      this.trayPieces[i] = slotContainer;
     }
   }
 
@@ -176,6 +177,30 @@ export class PieceRenderer {
   hideDragPiece(): void {
     this.dragPiece.clear();
     this.dragPiece.visible = false;
+  }
+
+  nudgeTraySlot(index: number, distance: number = 8, durationMs: number = 130): void {
+    const slot = this.trayPieces[index];
+    if (!slot) return;
+
+    const startX = slot.x;
+    const startTime = performance.now();
+
+    const animate = () => {
+      if (!slot.parent) return;
+      const elapsed = performance.now() - startTime;
+      if (elapsed >= durationMs) {
+        slot.x = startX;
+        return;
+      }
+
+      const t = elapsed / durationMs;
+      const wave = Math.sin(t * Math.PI * 4) * (1 - t);
+      slot.x = startX + wave * distance;
+      requestAnimationFrame(animate);
+    };
+
+    requestAnimationFrame(animate);
   }
 
   getTraySlotBounds(index: number): { x: number; y: number; w: number; h: number } {

@@ -12,7 +12,7 @@ import { DragController, DragState } from '../input/DragController';
 import { AudioManager } from '../audio/AudioManager';
 import { AdaptiveTuning } from '../core/AdaptiveProgression';
 import { FeedbackEvent, RunSummary } from '../core/types';
-import { Difficulty, GameConfig } from '../core/Config';
+import { Difficulty, DIFFICULTY_LABELS, GameConfig } from '../core/Config';
 import { getProgressStatus } from '../core/Progression';
 import { FONT_DISPLAY, THEME } from '../rendering/Theme';
 
@@ -48,9 +48,11 @@ export class GameScene implements Scene {
   private lastCountdownNumber = 4;
 
   // Critical time alerts
-  private alertsFired = { ten: false, five: false, last: false };
+  private alertsFired = { five: false, two: false };
   private lastTickSecond = -1;
+  private lastHapticSecond = -1;
   private progressTierIndex = 0;
+  private skipCountdown: boolean;
 
   // Game over sequence
   private gameOverSequenceActive = false;
@@ -63,6 +65,7 @@ export class GameScene implements Scene {
     config: GameConfig,
     difficulty: Difficulty,
     adaptiveTuning: AdaptiveTuning,
+    skipCountdown: boolean,
     onGameOver: (summary: RunSummary) => void,
     onQuit: () => void,
     bgColorSetter?: (color: number) => void,
@@ -72,6 +75,7 @@ export class GameScene implements Scene {
     this.audioManager = audioManager;
     this.onGameOver = onGameOver;
     this.onQuit = onQuit;
+    this.skipCountdown = skipCountdown;
     this.bgColorSetter = bgColorSetter || null;
     this.container = new Container();
 
@@ -107,6 +111,7 @@ export class GameScene implements Scene {
     this.container.addChild(this.fxManager.fgContainer);
 
     this.fxManager.setShakeTarget(this.gameContent);
+    this.fxManager.setDifficultyMood(difficulty);
     if (this.bgColorSetter) {
       this.fxManager.setBgColorSetter(this.bgColorSetter);
     }
@@ -138,18 +143,24 @@ export class GameScene implements Scene {
     this.uiRenderer.updateStreak(this.gameState.streakCount);
     this.updateProgressPresentation(false);
 
-    // Start countdown
-    this.countdownPhase = 'countdown';
-    this.countdownTime = 3;
+    this.countdownPhase = this.skipCountdown ? 'playing' : 'countdown';
+    this.countdownTime = this.skipCountdown ? 0 : 3;
     this.lastCountdownNumber = 4;
-    this.alertsFired = { ten: false, five: false, last: false };
+    this.alertsFired = { five: false, two: false };
     this.lastTickSecond = -1;
+    this.lastHapticSecond = -1;
     this.progressTierIndex = getProgressStatus(this.gameState.difficulty, this.gameState.score).tierIndex;
     this.gameOverSequenceActive = false;
     this.gameOverElapsed = 0;
 
-    // Disable drag during countdown
-    this.dragController.detach(this.canvas);
+    if (this.skipCountdown) {
+      this.dragController.attach(this.canvas);
+      this.audioManager.startPulse(this.gameState.drainRate);
+      this.fxManager.triggerFlash(0.16, 10);
+      this.showCenterAlert(`${DIFFICULTY_LABELS[this.gameState.difficulty]} MODE`, THEME.accent, 22);
+    } else {
+      this.dragController.detach(this.canvas);
+    }
   }
 
   exit(): void {
@@ -235,10 +246,11 @@ export class GameScene implements Scene {
     this.gridRenderer.updateNearMiss(this.gameState.board);
 
     // Haptic heartbeat for low time
-    if (this.gameState.timeRemaining <= 10) {
+    if (this.gameState.timeRemaining <= 5) {
       const sec = Math.ceil(this.gameState.timeRemaining);
-      if (sec !== this.lastTickSecond && sec > 0) {
-        this.haptic([20, 100, 20]);
+      if (sec !== this.lastHapticSecond && sec > 0) {
+        this.lastHapticSecond = sec;
+        this.haptic(16);
       }
     }
   }
@@ -320,50 +332,33 @@ export class GameScene implements Scene {
 
   private updateCountdownTicks(): void {
     const time = this.gameState.timeRemaining;
-    if (time > 10) return;
+    if (time > 5) return;
     const sec = Math.ceil(time);
     if (sec === this.lastTickSecond || sec <= 0) return;
     this.lastTickSecond = sec;
 
-    if (time <= 3) {
-      // Triple tick
-      this.audioManager.playTick();
-      setTimeout(() => this.audioManager.playTick(), 80);
-      setTimeout(() => this.audioManager.playTick(), 160);
-    } else if (time <= 5) {
-      // Double tick
-      this.audioManager.playTick();
-      setTimeout(() => this.audioManager.playTick(), 100);
-    } else {
-      // Single tick
-      this.audioManager.playTick();
-    }
+    this.audioManager.playTick();
   }
 
   // ── Critical alerts ──
 
   private updateCriticalAlerts(): void {
     const time = this.gameState.timeRemaining;
-    if (time <= 10 && time > 9.5 && !this.alertsFired.ten) {
-      this.alertsFired.ten = true;
-      this.showCenterAlert('10 SECONDS!');
-      this.audioManager.playAlertChime();
-    }
     if (time <= 5 && time > 4.5 && !this.alertsFired.five) {
       this.alertsFired.five = true;
       this.showCenterAlert('5 SECONDS!');
       this.audioManager.playAlertChime();
     }
-    if (time <= 3 && time > 2.5 && !this.alertsFired.last) {
-      this.alertsFired.last = true;
-      this.showCenterAlert('LAST CHANCE!');
+    if (time <= 2 && time > 1.5 && !this.alertsFired.two) {
+      this.alertsFired.two = true;
+      this.showCenterAlert('2 SECONDS!');
       this.audioManager.playAlertChime();
       this.fxManager.triggerShake(3, 0.2);
     }
   }
 
-  private showCenterAlert(text: string): void {
-    this.animationManager.showCenterAlert(text);
+  private showCenterAlert(text: string, color: number = THEME.danger, fontSize: number = 28): void {
+    this.animationManager.showCenterAlert(text, color, fontSize);
   }
 
   // ── Game over sequence ──
@@ -395,7 +390,7 @@ export class GameScene implements Scene {
 
   private updateGameOverSequence(dt: number): void {
     this.gameOverElapsed += dt;
-    if (this.gameOverElapsed >= 1.2) {
+    if (this.gameOverElapsed >= 0.65) {
       this.gameOverSequenceActive = false;
       this.onGameOver(this.gameState.buildRunSummary());
     }
@@ -601,6 +596,23 @@ export class GameScene implements Scene {
           state.gridPos.col,
         );
         this.processFeedback(events);
+      } else if (state.gridPos) {
+        const assistedPlacement = this.dragController.findNearestPlacement(
+          state.piece,
+          state.gridPos.row,
+          state.gridPos.col,
+          1,
+        );
+        if (assistedPlacement) {
+          const events = this.gameState.tryPlace(
+            state.pieceIndex,
+            assistedPlacement.row,
+            assistedPlacement.col,
+          );
+          this.processFeedback(events);
+        } else {
+          this.handleInvalidPlacement(state.pieceIndex, state.piece, state.gridPos);
+        }
       }
 
       this.pieceRenderer.drawTray(this.gameState.activePieces);
@@ -626,11 +638,16 @@ export class GameScene implements Scene {
     };
 
     this.dragController.onTapPlace = (pieceIndex, gridPos) => {
+      const selectedPiece = this.gameState.activePieces[pieceIndex];
       this.pieceRenderer.hideSelection();
       this.ghostRenderer.hide();
 
       const events = this.gameState.tryPlace(pieceIndex, gridPos.row, gridPos.col);
-      this.processFeedback(events);
+      if (events.length > 0) {
+        this.processFeedback(events);
+      } else if (selectedPiece) {
+        this.handleInvalidPlacement(pieceIndex, selectedPiece, gridPos);
+      }
 
       this.pieceRenderer.drawTray(this.gameState.activePieces);
       this.dragController.updatePieces(this.gameState.activePieces);
@@ -639,10 +656,25 @@ export class GameScene implements Scene {
     };
   }
 
+  private handleInvalidPlacement(
+    pieceIndex: number,
+    piece: DragState['piece'],
+    gridPos: { row: number; col: number } | null,
+  ): void {
+    this.audioManager.playInvalid();
+    this.pieceRenderer.nudgeTraySlot(pieceIndex);
+    if (gridPos) {
+      this.ghostRenderer.flashRejected(piece.shape, gridPos.row, gridPos.col, piece.color);
+    }
+    this.fxManager.triggerShake(1.5, 0.08);
+    this.haptic(12);
+  }
+
   // ── Time bonus popup ──
 
   private showTimeBonusPopup(timeBonus: number, big: boolean = false): void {
     if (timeBonus <= 0) return;
+    if (!big && timeBonus < 2.8) return;
     const label = `+${timeBonus.toFixed(1)}s`;
     if (big) {
       this.animationManager.showStreakPopup(0, label);
@@ -750,6 +782,7 @@ export class GameScene implements Scene {
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
           this.updateProgressPresentation(true);
           this.uiRenderer.updateStreak(this.gameState.streakCount);
+          this.fxManager.boostFlow(0.22);
           this.fxManager.updateFlowState(this.gameState.streakCount);
           break;
         }
@@ -810,18 +843,33 @@ export class GameScene implements Scene {
           this.gridRenderer.drawBlocks(this.gameState.board.grid);
           this.updateProgressPresentation(true);
           this.uiRenderer.updateStreak(this.gameState.streakCount);
+          this.fxManager.boostFlow(0.42);
           this.fxManager.updateFlowState(this.gameState.streakCount);
           break;
         }
 
         case 'boardClear': {
+          this.audioManager.playBoardClear();
           // Big shake + flash
           this.fxManager.triggerShake(8, 0.2);
           this.fxManager.triggerFlash(0.5, 5);
+          this.fxManager.boostFlow(0.72);
           this.haptic([50, 30, 80, 30, 120]);
 
+          const layout = this.layoutManager.layout;
+          this.animationManager.showCenterAlert('BOARD CLEAR', THEME.gold, 30);
+          this.fxManager.triggerZoomPulse(
+            this.gameContent,
+            layout.gridOriginX + layout.gridSize / 2,
+            layout.gridOriginY + layout.gridSize / 2,
+          );
+          this.animationManager.spawnExplosion(
+            layout.gridOriginX + layout.gridSize / 2,
+            layout.gridOriginY + layout.gridSize / 2,
+            26,
+          );
+
           if (event.scoreBreakdown) {
-            const layout = this.layoutManager.layout;
             this.animationManager.showScorePopup(
               event.scoreBreakdown.turnScore,
               layout.width / 2,
@@ -849,8 +897,17 @@ export class GameScene implements Scene {
 
     const status = getProgressStatus(this.gameState.difficulty, this.gameState.score);
     if (announceTier && status.tierIndex > this.progressTierIndex) {
-      this.showCenterAlert(`${status.current.label} TIER`);
-      this.audioManager.playAlertChime();
+      const layout = this.layoutManager.layout;
+      this.showCenterAlert(`${status.current.label} TIER`, status.current.color, 30);
+      this.audioManager.playTierUp();
+      this.fxManager.triggerFlash(0.22, 8);
+      this.fxManager.triggerShake(3, 0.1);
+      this.fxManager.boostFlow(0.55);
+      this.animationManager.spawnExplosion(
+        layout.gridOriginX + layout.gridSize / 2,
+        layout.gridOriginY + layout.gridSize / 2 - 20,
+        18,
+      );
     }
     this.progressTierIndex = status.tierIndex;
   }

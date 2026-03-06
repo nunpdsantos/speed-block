@@ -233,19 +233,19 @@ export class AnimationManager {
     this.popups.push({ text, startY: y, life: 0, maxLife: 0.6 });
   }
 
-  /** Show center alert text (for critical time warnings) */
-  showCenterAlert(label: string): void {
+  /** Show center alert text */
+  showCenterAlert(label: string, color: number = 0xff4444, fontSize: number = 28): void {
     if (!this.layout) return;
     const style = new TextStyle({
       fontFamily: FONT_DISPLAY,
-      fontSize: 28,
+      fontSize,
       fontWeight: '800',
-      fill: 0xff4444,
+      fill: color,
       letterSpacing: 4,
       dropShadow: {
         alpha: 0.8,
         blur: 14,
-        color: 0xff4444,
+        color,
         distance: 0,
       },
     });

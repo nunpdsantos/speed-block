@@ -16,6 +16,7 @@ export class UIRenderer {
   private speedText: Text;
   private rankText: Text;
   private goalText: Text;
+  private progressBarGfx: Graphics;
   private layout!: Layout;
 
   // Low-time pulse animation
@@ -120,6 +121,7 @@ export class UIRenderer {
 
     this.timerBarGfx = new Graphics();
     this.speedBarGfx = new Graphics();
+    this.progressBarGfx = new Graphics();
 
     this.container.addChild(this.goalText);
     this.container.addChild(this.highScoreText);
@@ -127,6 +129,7 @@ export class UIRenderer {
     this.container.addChild(this.scoreText);
     this.container.addChild(this.streakText);
     this.container.addChild(this.rankText);
+    this.container.addChild(this.progressBarGfx);
     this.container.addChild(this.speedBarGfx);
     this.container.addChild(this.timerBarGfx);
     this.container.addChild(this.timerText);
@@ -201,12 +204,15 @@ export class UIRenderer {
     this.rankText.visible = true;
 
     if (status.next) {
-      this.goalText.text = `NEXT ${status.next.minScore.toLocaleString()}`;
+      const remaining = Math.max(0, status.next.minScore - score);
+      this.goalText.text = `${remaining.toLocaleString()} TO ${status.next.label}`;
       this.goalText.visible = true;
     } else {
       this.goalText.text = 'TOP TIER';
       this.goalText.visible = true;
     }
+
+    this.drawProgressBar(status.progressToNext, status.current.color);
   }
 
   updateTimer(timeRemaining: number, maxTime: number, dt: number): void {
@@ -335,5 +341,24 @@ export class UIRenderer {
     else if (score >= 5000) color = 0x10b981;
     else if (score >= 1000) color = 0x3b82f6;
     this.scoreText.style.fill = color;
+  }
+
+  private drawProgressBar(progressToNext: number, color: number): void {
+    if (!this.layout) return;
+
+    const g = this.progressBarGfx;
+    g.clear();
+
+    const width = Math.min(180, this.layout.gridSize * 0.46);
+    const height = 5;
+    const x = this.layout.width / 2 - width / 2;
+    const y = this.rankText.y + 18;
+    const fillWidth = Math.max(height, width * progressToNext);
+
+    g.roundRect(x, y, width, height, 2);
+    g.fill({ color: 0x111428, alpha: 0.5 });
+
+    g.roundRect(x, y, fillWidth, height, 2);
+    g.fill({ color, alpha: 0.95 });
   }
 }

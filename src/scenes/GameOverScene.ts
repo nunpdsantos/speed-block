@@ -42,8 +42,9 @@ export class GameOverScene implements Scene {
   }
 
   private async init(): Promise<void> {
-    await this.leaderboard.waitForRemote();
     this.build();
+    await this.leaderboard.waitForRemote();
+    this.refreshLeaderboard();
   }
 
   private build(): void {
@@ -194,7 +195,7 @@ export class GameOverScene implements Scene {
     const input = document.createElement('input');
     input.type = 'text';
     input.maxLength = 12;
-    input.value = '';
+    input.value = this.leaderboard.getLastName();
     input.autocomplete = 'off';
     input.enterKeyHint = 'done';
     input.inputMode = 'text';
@@ -280,10 +281,6 @@ export class GameOverScene implements Scene {
     document.body.appendChild(btn);
     this.htmlButton = btn;
 
-    // Focus input with delay to let the DOM settle
-    setTimeout(() => {
-      input.focus({ preventScroll: true });
-    }, 200);
   }
 
   private removeHtmlInput(): void {
@@ -319,6 +316,16 @@ export class GameOverScene implements Scene {
     this.rank = await this.leaderboard.submit(this.score, name);
 
     // Rebuild leaderboard with updated entries and rank highlight
+    if (this.leaderboardContainer) {
+      this.container.removeChild(this.leaderboardContainer);
+      this.leaderboardContainer.destroy({ children: true });
+      this.leaderboardContainer = null;
+    }
+    this.buildLeaderboard();
+  }
+
+  private refreshLeaderboard(): void {
+    if (!this.container) return;
     if (this.leaderboardContainer) {
       this.container.removeChild(this.leaderboardContainer);
       this.leaderboardContainer.destroy({ children: true });

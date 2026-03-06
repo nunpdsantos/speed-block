@@ -5,6 +5,16 @@ import { Difficulty, DIFFICULTY_LABELS } from '../core/Config';
 import { FONT_DISPLAY, FONT_MONO, THEME } from '../rendering/Theme';
 
 const DIFFICULTIES: Difficulty[] = ['chill', 'fast', 'blitz'];
+const DIFFICULTY_COLORS: Record<Difficulty, number> = {
+  chill: 0x22c55e,
+  fast: THEME.accent,
+  blitz: 0xf97316,
+};
+const DIFFICULTY_DESCRIPTIONS: Record<Difficulty, string> = {
+  chill: 'Longer clock, gentler trays, strategic board-building.',
+  fast: 'Balanced default. Smooth pressure with steady recovery windows.',
+  blitz: 'Short fuse, sharper spikes, explosive arcade pressure.',
+};
 
 export class MenuScene implements Scene {
   container: Container;
@@ -154,14 +164,15 @@ export class MenuScene implements Scene {
     for (let i = 0; i < DIFFICULTIES.length; i++) {
       const diff = DIFFICULTIES[i];
       const isSelected = diff === this.selectedDifficulty;
+      const accent = DIFFICULTY_COLORS[diff];
       const x = startX + i * (chipW + gap);
 
       const chip = new Graphics();
       if (isSelected) {
         chip.roundRect(x - 1, selectorY - 1, chipW + 2, chipH + 2, 9);
-        chip.fill({ color: THEME.accent, alpha: 0.3 });
+        chip.fill({ color: accent, alpha: 0.28 });
         chip.roundRect(x, selectorY, chipW, chipH, 8);
-        chip.fill({ color: THEME.btnPrimary });
+        chip.fill({ color: accent });
       } else {
         chip.roundRect(x, selectorY, chipW, chipH, 8);
         chip.fill({ color: 0x1a1e3a, alpha: 0.8 });
@@ -206,6 +217,24 @@ export class MenuScene implements Scene {
         this.buildLeaderboard();
       });
     }
+
+    const desc = new Text({
+      text: DIFFICULTY_DESCRIPTIONS[this.selectedDifficulty],
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 11,
+        fontWeight: '500',
+        fill: DIFFICULTY_COLORS[this.selectedDifficulty],
+        letterSpacing: 1.5,
+        align: 'center',
+        wordWrap: true,
+        wordWrapWidth: 260,
+      }),
+    });
+    desc.anchor.set(0.5, 0);
+    desc.x = this.width / 2;
+    desc.y = selectorY + chipH + 14;
+    group.addChild(desc);
   }
 
   // ── Leaderboard ──

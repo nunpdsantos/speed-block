@@ -222,16 +222,50 @@ export class DragController {
     // Try centering piece on tapped cell, clamped to grid bounds
     const idealRow = gridPos.row - Math.floor(piece.rows / 2);
     const idealCol = gridPos.col - Math.floor(piece.cols / 2);
-    const row = Math.max(0, Math.min(GRID_SIZE - piece.rows, idealRow));
-    const col = Math.max(0, Math.min(GRID_SIZE - piece.cols, idealCol));
+    return this.findNearestPlacement(piece, idealRow, idealCol, 2);
+  }
 
-    if (this.board.canPlace(piece.shape, row, col)) {
-      return { row, col };
+  findNearestPlacement(
+    piece: PieceInstance,
+    anchorRow: number,
+    anchorCol: number,
+    maxRadius: number = 2,
+  ): GridPos | null {
+    const maxRow = GRID_SIZE - piece.rows;
+    const maxCol = GRID_SIZE - piece.cols;
+    const clampedRow = Math.max(0, Math.min(maxRow, anchorRow));
+    const clampedCol = Math.max(0, Math.min(maxCol, anchorCol));
+    const seen = new Set<string>();
+
+    for (let radius = 0; radius <= maxRadius; radius++) {
+      const candidates: GridPos[] = [];
+
+      for (let dr = -radius; dr <= radius; dr++) {
+        for (let dc = -radius; dc <= radius; dc++) {
+          const row = clampedRow + dr;
+          const col = clampedCol + dc;
+          if (row < 0 || row > maxRow || col < 0 || col > maxCol) continue;
+
+          const key = `${row}:${col}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          candidates.push({ row, col });
+        }
+      }
+
+      candidates.sort((a, b) => {
+        const da = (a.row - anchorRow) * (a.row - anchorRow) + (a.col - anchorCol) * (a.col - anchorCol);
+        const db = (b.row - anchorRow) * (b.row - anchorRow) + (b.col - anchorCol) * (b.col - anchorCol);
+        return da - db;
+      });
+
+      for (const candidate of candidates) {
+        if (this.board.canPlace(piece.shape, candidate.row, candidate.col)) {
+          return candidate;
+        }
+      }
     }
-    // If clamped position fails, try the ideal unclamped position too
-    if ((row !== idealRow || col !== idealCol) && this.board.canPlace(piece.shape, idealRow, idealCol)) {
-      return { row: idealRow, col: idealCol };
-    }
+
     return null;
   }
 

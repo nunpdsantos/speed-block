@@ -1,4 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
+import { Difficulty } from '../core/Config';
 import { Layout } from './LayoutManager';
 import { THEME, lerpColor } from './Theme';
 
@@ -44,8 +45,8 @@ export class FXManager {
   // ── Color temperature ──
   private colorTempT = 0; // 0 = cool blue, 1 = warm
   private bgColorSetter: ((color: number) => void) | null = null;
-  private readonly coolColor = 0x4a5ba6;
-  private readonly warmColor = 0x8b3a5e;
+  private coolColor = 0x4a5ba6;
+  private warmColor = 0x8b3a5e;
 
   // ── Flow state (streak-driven) ──
   private flowIntensity = 0; // 0-1, driven by streak
@@ -80,6 +81,30 @@ export class FXManager {
     this.bgColorSetter = setter;
   }
 
+  setDifficultyMood(difficulty: Difficulty): void {
+    switch (difficulty) {
+      case 'chill':
+        this.coolColor = 0x35658b;
+        this.warmColor = 0x1b9b7d;
+        this.bgParticleCount = 18;
+        break;
+      case 'blitz':
+        this.coolColor = 0x46377d;
+        this.warmColor = 0xae4028;
+        this.bgParticleCount = 34;
+        break;
+      default:
+        this.coolColor = 0x4a5ba6;
+        this.warmColor = 0x8b3a5e;
+        this.bgParticleCount = 25;
+        break;
+    }
+
+    if (this.layout) {
+      this.initBgParticles();
+    }
+  }
+
   // ── Triggers ──
 
   /** Screen shake: random displacement decaying over duration */
@@ -112,6 +137,11 @@ export class FXManager {
     else if (streakCount >= 3) this.flowDecayTarget = 0.35;
     else if (streakCount >= 2) this.flowDecayTarget = 0.15;
     else this.flowDecayTarget = 0;
+  }
+
+  boostFlow(intensity: number): void {
+    this.flowIntensity = Math.max(this.flowIntensity, intensity);
+    this.flowDecayTarget = Math.max(this.flowDecayTarget, intensity * 0.85);
   }
 
   get currentFlowIntensity(): number {

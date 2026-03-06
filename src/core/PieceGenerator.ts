@@ -45,6 +45,47 @@ const THREAT_PIECES = new Set([
   'big_l',
   'pentomino_line',
 ]);
+const MODE_WEIGHTS: Record<Difficulty, {
+  rescueBias: number;
+  threatBias: number;
+  pressureMoves: number;
+  pressureTimeFraction: number;
+  rescuePressureBoost: number;
+  rescueCrisisBoost: number;
+  threatPressureDrop: number;
+  threatCrisisDrop: number;
+}> = {
+  chill: {
+    rescueBias: 1.16,
+    threatBias: 0.84,
+    pressureMoves: 3,
+    pressureTimeFraction: 0.22,
+    rescuePressureBoost: 2.35,
+    rescueCrisisBoost: 3.45,
+    threatPressureDrop: 0.36,
+    threatCrisisDrop: 0.16,
+  },
+  fast: {
+    rescueBias: 1,
+    threatBias: 1,
+    pressureMoves: 2,
+    pressureTimeFraction: 0.25,
+    rescuePressureBoost: 2.1,
+    rescueCrisisBoost: 3.2,
+    threatPressureDrop: 0.45,
+    threatCrisisDrop: 0.18,
+  },
+  blitz: {
+    rescueBias: 0.92,
+    threatBias: 1.08,
+    pressureMoves: 2,
+    pressureTimeFraction: 0.18,
+    rescuePressureBoost: 1.8,
+    rescueCrisisBoost: 2.7,
+    threatPressureDrop: 0.58,
+    threatCrisisDrop: 0.24,
+  },
+};
 
 /** Placement fitness for a piece type on the current board */
 interface TypeFitness {
@@ -284,26 +325,30 @@ export class PieceGenerator {
   }
 
   private getContextWeight(typeId: string, context: GenerationContext): number {
+    const mode = MODE_WEIGHTS[context.difficulty];
     const underPressure =
-      context.movesSinceLastClear >= 2 || context.timeRemainingFraction <= 0.25;
+      context.movesSinceLastClear >= mode.pressureMoves ||
+      context.timeRemainingFraction <= mode.pressureTimeFraction;
 
     let weight = 1;
 
     if (RESCUE_PIECES.has(typeId)) {
+      weight *= mode.rescueBias;
       weight *= context.adaptiveTuning.rescueWeightMultiplier;
       if (underPressure) {
-        weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= 3
-          ? 3.2
-          : 2.1;
+        weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= mode.pressureMoves + 1
+          ? mode.rescueCrisisBoost
+          : mode.rescuePressureBoost;
       }
     }
 
     if (THREAT_PIECES.has(typeId)) {
+      weight *= mode.threatBias;
       weight *= context.adaptiveTuning.threatWeightMultiplier;
       if (underPressure) {
-        weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= 3
-          ? 0.18
-          : 0.45;
+        weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= mode.pressureMoves + 1
+          ? mode.threatCrisisDrop
+          : mode.threatPressureDrop;
       }
     }
 

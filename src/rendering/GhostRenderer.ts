@@ -10,6 +10,7 @@ export class GhostRenderer {
   container: Container;
   private graphics: Graphics;
   private layout!: Layout;
+  private hideTimer: number | null = null;
 
   constructor() {
     this.container = new Container();
@@ -23,6 +24,27 @@ export class GhostRenderer {
 
   /** Show ghost preview — outline style for valid, filled for invalid */
   show(shape: ShapeMatrix, row: number, col: number, color: number, valid: boolean): void {
+    this.clearHideTimer();
+    this.drawGhost(shape, row, col, color, valid, valid ? 0.2 : 0.12, valid ? 0.6 : 0.3);
+  }
+
+  flashRejected(shape: ShapeMatrix, row: number, col: number, color: number): void {
+    this.clearHideTimer();
+    this.drawGhost(shape, row, col, color, false, 0.2, 0.65);
+    this.hideTimer = window.setTimeout(() => {
+      this.hide();
+    }, 120);
+  }
+
+  private drawGhost(
+    shape: ShapeMatrix,
+    row: number,
+    col: number,
+    color: number,
+    valid: boolean,
+    fillAlpha: number,
+    strokeAlpha: number,
+  ): void {
     const g = this.graphics;
     g.clear();
     const { gridOriginX, gridOriginY, cellSize } = this.layout;
@@ -41,21 +63,29 @@ export class GhostRenderer {
         if (valid) {
           // Valid: soft glow fill + bright border
           g.roundRect(x, y, size, size, BLOCK_RADIUS);
-          g.fill({ color: lighten(color, 0.3), alpha: 0.2 });
+          g.fill({ color: lighten(color, 0.3), alpha: fillAlpha });
           g.roundRect(x, y, size, size, BLOCK_RADIUS);
-          g.stroke({ width: 1.5, color: lighten(color, 0.4), alpha: 0.6 });
+          g.stroke({ width: 1.5, color: lighten(color, 0.4), alpha: strokeAlpha });
         } else {
           // Invalid: dim red fill
           g.roundRect(x, y, size, size, BLOCK_RADIUS);
-          g.fill({ color: THEME.danger, alpha: 0.12 });
+          g.fill({ color: THEME.danger, alpha: fillAlpha });
           g.roundRect(x, y, size, size, BLOCK_RADIUS);
-          g.stroke({ width: 1, color: THEME.danger, alpha: 0.3 });
+          g.stroke({ width: 1.4, color: THEME.danger, alpha: strokeAlpha });
         }
       }
     }
   }
 
   hide(): void {
+    this.clearHideTimer();
     this.graphics.clear();
+  }
+
+  private clearHideTimer(): void {
+    if (this.hideTimer !== null) {
+      window.clearTimeout(this.hideTimer);
+      this.hideTimer = null;
+    }
   }
 }
