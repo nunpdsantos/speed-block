@@ -67,7 +67,7 @@ export interface RunSummary {
 
 // ── Feedback event: the contract between core → rendering ──
 export interface FeedbackEvent {
-  type: 'place' | 'clear' | 'combo' | 'gameOver' | 'newBatch' | 'boardClear' | 'timeUp';
+  type: 'place' | 'clear' | 'combo' | 'gameOver' | 'newBatch' | 'boardClear' | 'timeUp' | 'newPieceIntroduced';
   pieceIndex?: number;
   placedCells?: GridPos[];
   clearResult?: ClearResult;
@@ -80,6 +80,9 @@ export interface FeedbackEvent {
   speedFraction?: number;
   streakBroken?: boolean;
   previousStreak?: number;
+  /** For newPieceIntroduced events */
+  newPieceTypeIds?: string[];
+  newPieceNames?: string[];
 }
 
 // ── Color palette — bold and saturated ──

@@ -587,7 +587,9 @@ export class GameScene implements Scene {
       this.pieceRenderer.clearDragTrail();
       this.ghostRenderer.hide();
 
-      if (state.gridPos && state.isValid) {
+      if (state.inTrayZone) {
+        // Dragged back to tray — cancel, return piece
+      } else if (state.gridPos && state.isValid) {
         const events = this.gameState.tryPlace(
           state.pieceIndex,
           state.gridPos.row,
@@ -595,22 +597,8 @@ export class GameScene implements Scene {
         );
         this.processFeedback(events);
       } else if (state.gridPos) {
-        const assistedPlacement = this.dragController.findNearestPlacement(
-          state.piece,
-          state.gridPos.row,
-          state.gridPos.col,
-          1,
-        );
-        if (assistedPlacement) {
-          const events = this.gameState.tryPlace(
-            state.pieceIndex,
-            assistedPlacement.row,
-            assistedPlacement.col,
-          );
-          this.processFeedback(events);
-        } else {
-          this.handleInvalidPlacement(state.pieceIndex, state.piece, state.gridPos);
-        }
+        // Invalid drop: return piece to tray with rejection feedback
+        this.handleInvalidPlacement(state.pieceIndex, state.piece, state.gridPos);
       }
 
       this.pieceRenderer.drawTray(this.gameState.activePieces);
@@ -881,6 +869,21 @@ export class GameScene implements Scene {
         case 'newBatch':
           this.pieceRenderer.drawTray(this.gameState.activePieces);
           break;
+
+        case 'newPieceIntroduced': {
+          const names = event.newPieceNames ?? [];
+          const label = names.length > 1
+            ? `NEW PIECES`
+            : `NEW: ${names[0] ?? 'PIECE'}`;
+          this.showCenterAlert(label, THEME.accent, 24);
+          this.audioManager.playTierUp();
+          this.fxManager.triggerFlash(0.15, 6);
+          // One-time learning grace per new type
+          const gracePerType = this.gameState.difficulty === 'chill' ? 3
+            : this.gameState.difficulty === 'fast' ? 2 : 1.5;
+          this.gameState.addTime(gracePerType * (event.newPieceTypeIds?.length ?? 1));
+          break;
+        }
 
         case 'gameOver':
           this.startGameOverSequence();

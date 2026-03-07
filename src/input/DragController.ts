@@ -9,6 +9,8 @@ export interface DragState {
   pointerY: number;
   gridPos: GridPos | null;
   isValid: boolean;
+  /** True when pointer is in the tray cancel zone on release */
+  inTrayZone: boolean;
 }
 
 export type DragStartCallback = (state: DragState) => void;
@@ -20,6 +22,7 @@ export type DeselectCallback = () => void;
 export type TapPlaceCallback = (pieceIndex: number, gridPos: GridPos) => void;
 
 const TAP_THRESHOLD = 12; // pixels — below this distance is a tap, not a drag
+const HYSTERESIS_FRACTION = 0.12; // 12% of cell size
 
 export class DragController {
   private layoutManager: LayoutManager;
@@ -29,6 +32,11 @@ export class DragController {
   private active = false;
   private pointerDownPos: { x: number; y: number } | null = null;
   private pointerDownPieceIndex = -1;
+
+  // Hysteresis: last snapped grid position during drag
+  private lastSnappedRow = 0;
+  private lastSnappedCol = 0;
+  private hasSnappedPos = false;
 
   // Selected piece for tap-to-place
   selectedIndex = -1;
@@ -102,6 +110,12 @@ export class DragController {
     return -1;
   }
 
+  /** Check if pointer position is in the tray cancel zone */
+  private isInTrayZone(py: number): boolean {
+    const layout = this.layoutManager.layout;
+    return py >= layout.trayOriginY;
+  }
+
   private handlePointerDown = (e: PointerEvent): void => {
     if (!this.active) return;
     // If a previous drag got stuck (missed pointerup/pointercancel), force-cancel it
@@ -132,7 +146,10 @@ export class DragController {
         pointerY: py,
         gridPos: null,
         isValid: false,
+        inTrayZone: false,
       };
+      // Reset hysteresis for new drag
+      this.hasSnappedPos = false;
       this.updateGridSnap(px, py);
       this.onDragStart(this.dragging);
     }
@@ -192,8 +209,9 @@ export class DragController {
         this.deselect();
       }
     } else if (this.dragging) {
-      // Normal drag end
+      // Normal drag end — check for tray cancel zone
       this.updateGridSnap(px, py);
+      this.dragging.inTrayZone = this.isInTrayZone(py);
       this.onDragEnd(this.dragging);
       this.dragging = null;
     }
@@ -269,7 +287,7 @@ export class DragController {
     return null;
   }
 
-  /** Snap the dragged piece to the nearest grid cell, accounting for drag offset */
+  /** Snap the dragged piece to the nearest grid cell, with hysteresis to prevent flicker */
   private updateGridSnap(px: number, py: number): void {
     if (!this.dragging) return;
     const layout = this.layoutManager.layout;
@@ -279,13 +297,45 @@ export class DragController {
     const centerX = px;
     const centerY = py + layout.dragOffsetY;
 
-    // Convert to grid position (top-left corner of piece)
+    // Convert to continuous grid position (top-left corner of piece)
     const halfCols = piece.cols / 2;
     const halfRows = piece.rows / 2;
     const gridX = centerX - layout.gridOriginX;
     const gridY = centerY - layout.gridOriginY;
-    const col = Math.round(gridX / layout.cellSize - halfCols);
-    const row = Math.round(gridY / layout.cellSize - halfRows);
+    const exactCol = gridX / layout.cellSize - halfCols;
+    const exactRow = gridY / layout.cellSize - halfRows;
+
+    let col: number;
+    let row: number;
+
+    if (this.hasSnappedPos) {
+      // Hysteresis: only snap to new cell if we've moved past midpoint + threshold
+      const threshold = HYSTERESIS_FRACTION;
+      const newCol = Math.round(exactCol);
+      const newRow = Math.round(exactRow);
+
+      if (newCol !== this.lastSnappedCol) {
+        const distFromMid = Math.abs(exactCol - newCol);
+        col = distFromMid <= threshold ? this.lastSnappedCol : newCol;
+      } else {
+        col = this.lastSnappedCol;
+      }
+
+      if (newRow !== this.lastSnappedRow) {
+        const distFromMid = Math.abs(exactRow - newRow);
+        row = distFromMid <= threshold ? this.lastSnappedRow : newRow;
+      } else {
+        row = this.lastSnappedRow;
+      }
+    } else {
+      // First snap: use simple rounding
+      col = Math.round(exactCol);
+      row = Math.round(exactRow);
+      this.hasSnappedPos = true;
+    }
+
+    this.lastSnappedRow = row;
+    this.lastSnappedCol = col;
 
     // Clamp to valid range for display
     const clampedRow = Math.max(-piece.rows + 1, Math.min(GRID_SIZE - 1, row));

@@ -183,7 +183,7 @@ export class GridRenderer {
     g.stroke({ width: 2, color, alpha: alpha * 0.4 });
   }
 
-  /** Update near-miss highlight: show the single empty cell in rows/cols at 7/8 filled */
+  /** Update near-miss highlight: show empty cells in rows/cols at 7/8 or 6/8 filled */
   updateNearMiss(board: Board): void {
     const g = this.nearMissGraphics;
     g.clear();
@@ -191,11 +191,14 @@ export class GridRenderer {
 
     const { gridOriginX, gridOriginY, cellSize } = this.layout;
     this.nearMissPhase += 0.1;
-    const alpha = 0.25 + Math.sin(this.nearMissPhase * 4) * 0.10;
+    const alpha7 = 0.25 + Math.sin(this.nearMissPhase * 4) * 0.10;
+    const alpha6 = 0.12 + Math.sin(this.nearMissPhase * 3) * 0.05;
 
-    // Check rows — only highlight when exactly 1 cell left to clear
+    // Check rows
     for (let r = 0; r < GRID_SIZE; r++) {
-      if (board.getRowFillCount(r) === GRID_SIZE - 1) {
+      const fill = board.getRowFillCount(r);
+      const alpha = fill === GRID_SIZE - 1 ? alpha7 : fill === GRID_SIZE - 2 ? alpha6 : 0;
+      if (alpha > 0) {
         for (let c = 0; c < GRID_SIZE; c++) {
           if (board.getCell(r, c) === null) {
             const x = gridOriginX + c * cellSize;
@@ -207,9 +210,11 @@ export class GridRenderer {
       }
     }
 
-    // Check cols — only highlight when exactly 1 cell left to clear
+    // Check cols
     for (let c = 0; c < GRID_SIZE; c++) {
-      if (board.getColFillCount(c) === GRID_SIZE - 1) {
+      const fill = board.getColFillCount(c);
+      const alpha = fill === GRID_SIZE - 1 ? alpha7 : fill === GRID_SIZE - 2 ? alpha6 : 0;
+      if (alpha > 0) {
         for (let r = 0; r < GRID_SIZE; r++) {
           if (board.getCell(r, c) === null) {
             const x = gridOriginX + c * cellSize;

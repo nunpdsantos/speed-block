@@ -33,20 +33,34 @@ const THREAT_PIECES = new Set([
   'pentomino_line',
 ]);
 
-const CHILL_UNLOCKS: [string, number][] = [
-  ['pentomino_line', 3000],
-  ['big_l', 5000],
-  ['rectangle', 8000],
-  ['diagonal_2', 11000],
-  ['square_3x3', 18000],
-  ['diagonal_3', 25000],
-  ['big_rectangle', 35000],
-];
-
 const PIECE_UNLOCK_SCORES: Record<Difficulty, [string, number][]> = {
-  chill: CHILL_UNLOCKS,
-  fast: CHILL_UNLOCKS.map(([id, score]) => [id, Math.round(score * 0.7)]),
-  blitz: CHILL_UNLOCKS.map(([id, score]) => [id, Math.round(score * 0.45)]),
+  chill: [
+    ['pentomino_line', 4000],
+    ['big_l', 7500],
+    ['rectangle', 12000],
+    ['diagonal_2', 16000],
+    ['square_3x3', 22000],
+    ['diagonal_3', 30000],
+    ['big_rectangle', 40000],
+  ],
+  fast: [
+    ['pentomino_line', 2800],
+    ['big_l', 5200],
+    ['rectangle', 8400],
+    ['diagonal_2', 11200],
+    ['square_3x3', 15400],
+    ['diagonal_3', 21000],
+    ['big_rectangle', 28000],
+  ],
+  blitz: [
+    ['pentomino_line', 1800],
+    ['big_l', 3400],
+    ['rectangle', 5400],
+    ['diagonal_2', 7200],
+    ['square_3x3', 9900],
+    ['diagonal_3', 13500],
+    ['big_rectangle', 18000],
+  ],
 };
 
 const MODE_WEIGHTS: Record<Difficulty, {

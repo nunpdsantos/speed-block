@@ -5,6 +5,11 @@ import { Difficulty, GameConfig, DEFAULT_CONFIG } from './Config';
 import { getRunPacing } from './RunPacing';
 import { PieceInstance, FeedbackEvent, ClearResult, RunEndCause, RunSummary } from './types';
 
+/** Human-readable display name for a piece typeId */
+function pieceDisplayName(typeId: string): string {
+  return typeId.replace(/_/g, ' ').toUpperCase();
+}
+
 /** Read the cached top score from localStorage for a given difficulty */
 function readCachedTopScore(difficulty: Difficulty): number {
   try {
@@ -40,6 +45,9 @@ export class GameState {
   maxStreak: number = 0;
   maxDrySpell: number = 0;
   peakBoardFillCount: number = 0;
+
+  /** Piece type IDs that have appeared in this run (for NEW PIECE detection) */
+  private seenTypeIds: Set<string> = new Set();
 
   private generator: PieceGenerator;
   private scoreEngine: ScoreEngine;
@@ -93,6 +101,10 @@ export class GameState {
     this.peakBoardFillCount = 0;
     const batch = this.generator.generateBatch(this.board, this.getGenerationContext());
     this.activePieces = [...batch];
+
+    // Seed seenTypeIds from the first batch (baseline — never trigger NEW PIECE for these)
+    this.seenTypeIds = new Set(batch.map(p => p.typeId));
+
     return { type: 'newBatch', newBatch: batch };
   }
 
@@ -104,11 +116,9 @@ export class GameState {
     this.gameElapsed += dt;
 
     const pacing = this.getRunPacing();
-    this.drainRate = Math.max(
-      0.55,
-      pacing.drainMultiplier +
-      (this.gameElapsed / 60) * this.config.timer.drainAccelPerMinute * pacing.drainAccelMultiplier,
-    );
+    const rawTimeAccel = (this.gameElapsed / 60) * this.config.timer.drainAccelPerMinute * pacing.drainAccelMultiplier;
+    const cappedTimeAccel = Math.min(rawTimeAccel, pacing.timeAccelCap);
+    this.drainRate = Math.max(0.55, pacing.drainMultiplier + cappedTimeAccel);
     this.timeRemaining = Math.max(0, this.timeRemaining - dt * this.drainRate);
 
     if (this.timeRemaining <= 0) {
@@ -225,20 +235,38 @@ export class GameState {
       events[0].timeBonus = tunedTimeBonus;
     }
 
-    // 10. Mark piece as placed
+    // 11. Mark piece as placed
     this.activePieces[pieceIndex] = null;
     this.piecesPlacedInBatch++;
     this.peakBoardFillCount = Math.max(this.peakBoardFillCount, this.board.occupiedCount());
 
-    // 11. Generate new batch if all 3 placed
+    // 12. Generate new batch if all 3 placed
     if (this.piecesPlacedInBatch >= 3) {
       this.piecesPlacedInBatch = 0;
       const newBatch = this.generator.generateBatch(this.board, this.getGenerationContext());
       this.activePieces = [...newBatch];
       events.push({ type: 'newBatch', newBatch });
+
+      // Detect first-appearance piece types in this batch
+      const newTypeIds: string[] = [];
+      const newNames: string[] = [];
+      for (const p of newBatch) {
+        if (!this.seenTypeIds.has(p.typeId)) {
+          this.seenTypeIds.add(p.typeId);
+          newTypeIds.push(p.typeId);
+          newNames.push(pieceDisplayName(p.typeId));
+        }
+      }
+      if (newTypeIds.length > 0) {
+        events.push({
+          type: 'newPieceIntroduced',
+          newPieceTypeIds: newTypeIds,
+          newPieceNames: newNames,
+        });
+      }
     }
 
-    // 12. Check game over (no valid placement)
+    // 13. Check game over (no valid placement)
     if (this.checkGameOver()) {
       this.isGameOver = true;
       this.deathCause = 'board_lock';

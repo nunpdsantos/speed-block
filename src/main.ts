@@ -74,7 +74,7 @@ async function boot() {
       summary.score,
       leaderboard,
       selectedDifficulty,
-      () => startGame(true),
+      () => startGame(false),
       () => showMenu(),
     );
     sceneManager.switchTo(gameOver);

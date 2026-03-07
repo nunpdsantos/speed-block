@@ -16,6 +16,10 @@ interface DifficultyRamp {
   lowTimeThresholdFraction: number;
   lowTimeDrainMultiplier: number;
   lowTimeTimeBonusBoost: number;
+  /** Floor for the time-based drain acceleration cap (applied at score 0) */
+  timeAccelCapFloor: number;
+  /** Additional cap range added as score progresses toward ceiling */
+  timeAccelCapRange: number;
 }
 
 export interface RunPacingState {
@@ -23,6 +27,8 @@ export interface RunPacingState {
   drainAccelMultiplier: number;
   timeBonusMultiplier: number;
   recoveryActive: boolean;
+  /** Maximum additive time-based drain acceleration allowed at current score */
+  timeAccelCap: number;
 }
 
 const RAMPS: Record<Difficulty, DifficultyRamp> = {
@@ -34,11 +40,13 @@ const RAMPS: Record<Difficulty, DifficultyRamp> = {
     graceSeconds: 22,
     graceStartDrainMultiplier: 0.70,
     drySpellMoveThreshold: 3,
-    drySpellDrainMultiplier: 0.82,
-    drySpellTimeBonusMultiplier: 1.20,
-    lowTimeThresholdFraction: 0.20,
-    lowTimeDrainMultiplier: 0.80,
-    lowTimeTimeBonusBoost: 0.22,
+    drySpellDrainMultiplier: 0.75,
+    drySpellTimeBonusMultiplier: 1.25,
+    lowTimeThresholdFraction: 0.25,
+    lowTimeDrainMultiplier: 0.78,
+    lowTimeTimeBonusBoost: 0.26,
+    timeAccelCapFloor: 0.05,
+    timeAccelCapRange: 0.25,
   },
   fast: {
     ceilingScore: 30000,
@@ -48,11 +56,13 @@ const RAMPS: Record<Difficulty, DifficultyRamp> = {
     graceSeconds: 18,
     graceStartDrainMultiplier: 0.78,
     drySpellMoveThreshold: 2,
-    drySpellDrainMultiplier: 0.84,
-    drySpellTimeBonusMultiplier: 1.16,
-    lowTimeThresholdFraction: 0.24,
-    lowTimeDrainMultiplier: 0.82,
-    lowTimeTimeBonusBoost: 0.18,
+    drySpellDrainMultiplier: 0.78,
+    drySpellTimeBonusMultiplier: 1.20,
+    lowTimeThresholdFraction: 0.28,
+    lowTimeDrainMultiplier: 0.80,
+    lowTimeTimeBonusBoost: 0.22,
+    timeAccelCapFloor: 0.05,
+    timeAccelCapRange: 0.25,
   },
   blitz: {
     ceilingScore: 20000,
@@ -62,11 +72,13 @@ const RAMPS: Record<Difficulty, DifficultyRamp> = {
     graceSeconds: 12,
     graceStartDrainMultiplier: 0.86,
     drySpellMoveThreshold: 2,
-    drySpellDrainMultiplier: 0.88,
-    drySpellTimeBonusMultiplier: 1.12,
-    lowTimeThresholdFraction: 0.28,
-    lowTimeDrainMultiplier: 0.86,
-    lowTimeTimeBonusBoost: 0.14,
+    drySpellDrainMultiplier: 0.82,
+    drySpellTimeBonusMultiplier: 1.16,
+    lowTimeThresholdFraction: 0.32,
+    lowTimeDrainMultiplier: 0.84,
+    lowTimeTimeBonusBoost: 0.18,
+    timeAccelCapFloor: 0.06,
+    timeAccelCapRange: 0.24,
   },
 };
 
@@ -83,14 +95,17 @@ export function getRunPacing(
 ): RunPacingState {
   const ramp = RAMPS[difficulty];
 
-  // Continuous interpolation: t = (score / ceiling) ^ 0.65
+  // Continuous interpolation: t = (score / ceiling) ^ 0.55
   const rawT = Math.min(score / ramp.ceilingScore, 1);
-  const t = Math.pow(rawT, 0.65);
+  const t = Math.pow(rawT, 0.55);
 
   let drainMultiplier = lerp(ramp.floorDrain, ramp.ceilingDrain, t);
   let drainAccelMultiplier = lerp(ramp.floorDrainAccel, ramp.ceilingDrainAccel, t);
   let timeBonusMultiplier = lerp(ramp.floorTimeBonus, ramp.ceilingTimeBonus, t);
   let recoveryActive = false;
+
+  // Score-based cap on time acceleration: prevents long low-score runs from being punished
+  const timeAccelCap = ramp.timeAccelCapFloor + t * ramp.timeAccelCapRange;
 
   // Opening grace: ease into full drain over the first N seconds
   if (gameElapsed < ramp.graceSeconds) {
@@ -116,5 +131,5 @@ export function getRunPacing(
     timeBonusMultiplier *= 1 + ramp.lowTimeTimeBonusBoost * panicT;
   }
 
-  return { drainMultiplier, drainAccelMultiplier, timeBonusMultiplier, recoveryActive };
+  return { drainMultiplier, drainAccelMultiplier, timeBonusMultiplier, recoveryActive, timeAccelCap };
 }
