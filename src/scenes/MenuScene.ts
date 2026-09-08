@@ -162,6 +162,17 @@ export class MenuScene implements Scene {
       window.location.reload();
     });
 
+    // Build version (bottom-right) so it's obvious when a new deploy has arrived
+    const version = new Text({
+      text: `v${__APP_VERSION__}`,
+      style: new TextStyle({ fontFamily: FONT_MONO, fontSize: 10, fill: THEME.textMuted, letterSpacing: 1 }),
+    });
+    version.anchor.set(1, 1);
+    version.x = this.width - 12;
+    version.y = this.height - 10;
+    version.alpha = 0.7;
+    this.container.addChild(version);
+
     this.buildLowerSection();
   }
 
