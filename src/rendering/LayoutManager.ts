@@ -35,10 +35,11 @@ export class LayoutManager {
 
   recalculate(screenW: number, screenH: number): Layout {
     const padding = 16;
-    const hudHeight = 80;
-    const gridHeightRatio = 0.58;
+    // HUD block above the board: score, tier, timer bars
+    const hudHeight = 104;
+    const gridHeightRatio = 0.56;
 
-    const availableWidth = screenW - padding * 2;
+    const availableWidth = Math.min(screenW - padding * 2, 520);
     const availableGridHeight = screenH * gridHeightRatio;
     const maxCellSize = Math.floor(Math.min(availableWidth, availableGridHeight) / GRID_SIZE);
     const cellSize = Math.max(maxCellSize, 20); // minimum 20px cells
@@ -47,9 +48,9 @@ export class LayoutManager {
     const gridOriginX = Math.floor((screenW - gridSize) / 2);
     const gridOriginY = hudHeight + padding;
 
-    const trayGap = padding * 2; // bigger gap between grid and tray
+    const trayGap = padding * 1.5;
     const trayOriginY = gridOriginY + gridSize + trayGap;
-    const trayHeight = screenH - trayOriginY - padding;
+    const trayHeight = Math.max(60, screenH - trayOriginY - padding);
     const trayOriginX = gridOriginX;
     const trayWidth = gridSize;
 
@@ -57,7 +58,7 @@ export class LayoutManager {
     const maxPieceDim = 5;
     const trayMargin = 12; // vertical margin inside tray
     const maxTrayCellFromHeight = Math.floor((trayHeight - trayMargin * 2) / maxPieceDim);
-    const trayCellSize = Math.min(Math.floor(cellSize * 0.5), maxTrayCellFromHeight);
+    const trayCellSize = Math.max(8, Math.min(Math.floor(cellSize * 0.52), maxTrayCellFromHeight));
 
     this.layout = {
       width: screenW,
@@ -71,9 +72,9 @@ export class LayoutManager {
       trayWidth,
       trayHeight,
       trayCellSize,
-      scoreY: 20,
-      streakY: 52,
-      dragOffsetY: cellSize * -1.5,
+      scoreY: 22,
+      streakY: 62,
+      dragOffsetY: cellSize * -1.6,
     };
 
     return this.layout;

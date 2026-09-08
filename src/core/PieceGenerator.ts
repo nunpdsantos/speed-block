@@ -1,4 +1,4 @@
-import { PieceInstance, PieceType, PIECE_COLORS } from './types';
+import { PieceInstance, PieceType, PIECE_COLORS, GRID_SIZE } from './types';
 import { ALL_PIECE_TYPES } from './PieceData';
 import { createPieceInstance, cellCount } from './Piece';
 import { Board } from './Board';
@@ -72,6 +72,10 @@ const MODE_WEIGHTS: Record<Difficulty, {
   rescueCrisisBoost: number;
   threatPressureDrop: number;
   threatCrisisDrop: number;
+  /** Baseline preference for pieces that can complete a line right now */
+  clearBias: number;
+  /** Same preference while under pressure (dry spell / low time) */
+  clearPressureBias: number;
 }> = {
   chill: {
     rescueBias: 1.16,
@@ -82,6 +86,8 @@ const MODE_WEIGHTS: Record<Difficulty, {
     rescueCrisisBoost: 3.45,
     threatPressureDrop: 0.36,
     threatCrisisDrop: 0.16,
+    clearBias: 0.22,
+    clearPressureBias: 0.9,
   },
   fast: {
     rescueBias: 1,
@@ -92,6 +98,8 @@ const MODE_WEIGHTS: Record<Difficulty, {
     rescueCrisisBoost: 3.2,
     threatPressureDrop: 0.45,
     threatCrisisDrop: 0.18,
+    clearBias: 0.18,
+    clearPressureBias: 0.75,
   },
   blitz: {
     rescueBias: 0.92,
@@ -102,6 +110,8 @@ const MODE_WEIGHTS: Record<Difficulty, {
     rescueCrisisBoost: 2.7,
     threatPressureDrop: 0.58,
     threatCrisisDrop: 0.24,
+    clearBias: 0.14,
+    clearPressureBias: 0.6,
   },
 };
 
@@ -111,6 +121,10 @@ interface TypeFitness {
   size: number;
   totalPlacements: number; // sum of placements across all variants
   bestVariantPlacements: number; // max placements of any single variant
+  /** Max number of lines any single placement of any variant would complete */
+  bestClearLines: number;
+  /** How many (variant, position) placements complete at least one line */
+  clearPlacements: number;
 }
 
 export interface GenerationContext {
@@ -137,10 +151,16 @@ export class PieceGenerator {
     // Analyze the board once — how well does each piece type fit?
     const fitness = this.analyzeFitness(board, availableTypes);
 
+    // When the player is squeezed (crowded board AND a dry spell / low clock),
+    // insist that the tray offers at least one way out on the first attempts.
+    const wantClearOpportunity = this.isUnderPressure(normalizedContext) && fillRatio >= 0.6;
+
     // Try budget-balanced, spatially-aware batch where all 3 are placeable
     for (let attempt = 0; attempt < 30; attempt++) {
       const batch = this.smartBatch(fillRatio, fitness, availableTypes, normalizedContext);
-      if (this.isAcceptableBatch(board, batch)) return batch;
+      if (!this.isAcceptableBatch(board, batch)) continue;
+      if (wantClearOpportunity && attempt < 18 && !this.batchHasClearOpportunity(board, batch)) continue;
+      return batch;
     }
 
     // Fallback: budget-balanced, at least one placeable
@@ -169,17 +189,31 @@ export class PieceGenerator {
   }
 
   /**
-   * For each piece type, count how many valid placements exist
-   * across all its variants. This tells us which shapes actually
-   * match the board's available gaps.
+   * For each piece type, count how many valid placements exist across all
+   * its variants, and whether any of those placements would complete a line.
+   * This tells us which shapes actually match the board's available gaps
+   * and which ones give the player a real scoring opportunity.
    */
   private analyzeFitness(board: Board, pieceTypes: PieceType[]): Map<string, TypeFitness> {
     const map = new Map<string, TypeFitness>();
     for (const type of pieceTypes) {
       let totalPlacements = 0;
       let bestVariantPlacements = 0;
+      let bestClearLines = 0;
+      let clearPlacements = 0;
       for (const variant of type.variants) {
-        const count = board.countPlacements(variant);
+        let count = 0;
+        for (let row = 0; row <= GRID_SIZE - variant.length; row++) {
+          for (let col = 0; col <= GRID_SIZE - variant[0].length; col++) {
+            if (!board.canPlace(variant, row, col)) continue;
+            count++;
+            const lines = board.linesCompletedBy(variant, row, col);
+            if (lines > 0) {
+              clearPlacements++;
+              if (lines > bestClearLines) bestClearLines = lines;
+            }
+          }
+        }
         totalPlacements += count;
         if (count > bestVariantPlacements) bestVariantPlacements = count;
       }
@@ -188,6 +222,8 @@ export class PieceGenerator {
         size: cellCount(type.variants[0]),
         totalPlacements,
         bestVariantPlacements,
+        bestClearLines,
+        clearPlacements,
       });
     }
     return map;
@@ -262,10 +298,12 @@ export class PieceGenerator {
   }
 
   /**
-   * Combined weighting: size proximity * spatial fitness.
+   * Combined weighting: size proximity * spatial fitness * context * clear opportunity.
    *
    * sizeWeight:  1 / (1 + |size - target|^2)  — prefer pieces near budget target
    * fitWeight:   sqrt(totalPlacements + 1)     — prefer pieces with more placement options
+   * clearWeight: 1 + bias * min(bestClearLines, 2) — nudge toward pieces that can
+   *              finish a line, gently in normal play and strongly under pressure.
    *
    * The sqrt dampens the fitness so a piece with 50 placements doesn't
    * completely dominate one with 10. Both are good; the 50 one is just
@@ -277,13 +315,17 @@ export class PieceGenerator {
     fitness: Map<string, TypeFitness>,
     context: GenerationContext,
   ): PieceType {
+    const mode = MODE_WEIGHTS[context.difficulty];
+    const clearBias = this.isUnderPressure(context) ? mode.clearPressureBias : mode.clearBias;
+
     const weights = types.map(t => {
       const f = fitness.get(t.id)!;
       const sizeDist = Math.abs(f.size - targetSize);
       const sizeWeight = 1 / (1 + sizeDist * sizeDist);
       const fitWeight = Math.sqrt(f.totalPlacements + 1);
       const contextWeight = this.getContextWeight(t.id, context);
-      return sizeWeight * fitWeight * contextWeight;
+      const clearWeight = 1 + clearBias * Math.min(f.bestClearLines, 2);
+      return sizeWeight * fitWeight * contextWeight * clearWeight;
     });
 
     const totalWeight = weights.reduce((a, b) => a + b, 0);
@@ -300,6 +342,20 @@ export class PieceGenerator {
   /** Check if all pieces in a batch can be placed somewhere on the board */
   private allPlaceable(board: Board, batch: PieceInstance[]): boolean {
     return batch.every(p => board.canPlaceAnywhere(p.shape));
+  }
+
+  /** True if at least one piece in the batch can complete a line as-is */
+  private batchHasClearOpportunity(board: Board, batch: PieceInstance[]): boolean {
+    for (const piece of batch) {
+      for (let row = 0; row <= GRID_SIZE - piece.rows; row++) {
+        for (let col = 0; col <= GRID_SIZE - piece.cols; col++) {
+          if (board.canPlace(piece.shape, row, col) && board.linesCompletedBy(piece.shape, row, col) > 0) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   private isAcceptableBatch(board: Board, batch: PieceInstance[]): boolean {
@@ -324,6 +380,14 @@ export class PieceGenerator {
       timeRemainingFraction: context?.timeRemainingFraction ?? 1,
       boardFillFraction: context?.boardFillFraction ?? 0,
     };
+  }
+
+  private isUnderPressure(context: GenerationContext): boolean {
+    const mode = MODE_WEIGHTS[context.difficulty];
+    return (
+      context.movesSinceLastClear >= mode.pressureMoves ||
+      context.timeRemainingFraction <= mode.pressureTimeFraction
+    );
   }
 
   private getAvailableTypes(context: GenerationContext): PieceType[] {
@@ -354,27 +418,24 @@ export class PieceGenerator {
       threatDrop = 0.7;
     }
 
-    const underPressure =
-      context.movesSinceLastClear >= mode.pressureMoves ||
-      context.timeRemainingFraction <= mode.pressureTimeFraction;
+    const underPressure = this.isUnderPressure(context);
+    const crisis =
+      context.timeRemainingFraction <= 0.12 ||
+      context.movesSinceLastClear >= mode.pressureMoves + 1;
 
     let weight = 1;
 
     if (RESCUE_PIECES.has(typeId)) {
       weight *= mode.rescueBias * rescueBoost;
       if (underPressure) {
-        weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= mode.pressureMoves + 1
-          ? mode.rescueCrisisBoost
-          : mode.rescuePressureBoost;
+        weight *= crisis ? mode.rescueCrisisBoost : mode.rescuePressureBoost;
       }
     }
 
     if (THREAT_PIECES.has(typeId)) {
       weight *= mode.threatBias * threatDrop;
       if (underPressure) {
-        weight *= context.timeRemainingFraction <= 0.12 || context.movesSinceLastClear >= mode.pressureMoves + 1
-          ? mode.threatCrisisDrop
-          : mode.threatPressureDrop;
+        weight *= crisis ? mode.threatCrisisDrop : mode.threatPressureDrop;
       }
     }
 
@@ -420,10 +481,10 @@ export class PieceGenerator {
   private getPlacementStates(board: Board, piece: PieceInstance): Board[] {
     const states: { nextBoard: Board; linesCleared: number; occupied: number }[] = [];
 
-    for (let row = 0; row <= 8 - piece.rows; row++) {
-      for (let col = 0; col <= 8 - piece.cols; col++) {
+    for (let row = 0; row <= GRID_SIZE - piece.rows; row++) {
+      for (let col = 0; col <= GRID_SIZE - piece.cols; col++) {
         if (!board.canPlace(piece.shape, row, col)) continue;
-        const nextBoard = this.cloneBoard(board);
+        const nextBoard = board.clone();
         nextBoard.place(piece.shape, row, col, piece.color);
         const completed = nextBoard.findCompleted();
         let linesCleared = 0;
@@ -445,12 +506,6 @@ export class PieceGenerator {
     });
 
     return states.map(state => state.nextBoard);
-  }
-
-  private cloneBoard(board: Board): Board {
-    const next = new Board();
-    next.grid = board.grid.map(row => [...row]);
-    return next;
   }
 
   private serializeBoard(board: Board): string {
