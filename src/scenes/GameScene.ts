@@ -756,15 +756,16 @@ export class GameScene implements Scene {
       this.pieceRenderer.clearDragTrail();
       this.ghostRenderer.hide();
 
-      if (state.inTrayZone) {
-        // Dragged back to tray — cancel, return piece
-      } else if (state.gridPos && state.isValid) {
+      if (state.gridPos && state.isValid) {
+        // Valid preview on release always places, wherever the finger is
         const events = this.gameState.tryPlace(
           state.pieceIndex,
           state.gridPos.row,
           state.gridPos.col,
         );
         this.processFeedback(events, state.piece, state.gridPos);
+      } else if (state.inTrayZone) {
+        // Dragged back to tray — cancel, return piece
       } else if (state.gridPos) {
         // Invalid drop: return piece to tray with rejection feedback
         this.handleInvalidPlacement(state.pieceIndex, state.piece, state.gridPos);
