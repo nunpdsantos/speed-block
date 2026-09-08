@@ -1,20 +1,30 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { Scene } from './SceneManager';
 import { Leaderboard } from '../core/Leaderboard';
-import { Difficulty, DIFFICULTY_LABELS } from '../core/Config';
-import { FONT_DISPLAY, FONT_MONO, THEME } from '../rendering/Theme';
+import { Difficulty, DIFFICULTY_LABELS, DIFFICULTY_CONFIGS } from '../core/Config';
+import { getPersonalBest, getGamesPlayed, loadSettings, updateSettings } from '../core/Settings';
+import { AudioManager } from '../audio/AudioManager';
+import { FONT_DISPLAY, FONT_MONO, THEME, DIFFICULTY_COLORS, drawPanel, drawBeveledBlock } from '../rendering/Theme';
+import { createButton, createToggle, createSectionLabel, createBodyText } from '../rendering/Widgets';
+import { PIECE_COLORS } from '../core/types';
 
 const DIFFICULTIES: Difficulty[] = ['chill', 'fast', 'blitz'];
-const DIFFICULTY_COLORS: Record<Difficulty, number> = {
-  chill: 0x22c55e,
-  fast: THEME.accent,
-  blitz: 0xf97316,
-};
 const DIFFICULTY_DESCRIPTIONS: Record<Difficulty, string> = {
-  chill: 'Longer clock, gentler trays, strategic board-building.',
-  fast: 'Balanced default. Smooth pressure with steady recovery windows.',
-  blitz: 'Short fuse, sharper spikes, explosive arcade pressure.',
+  chill: 'Long clock, gentle trays. Build the board, learn the shapes.',
+  fast: 'The balanced default. Steady pressure with room to recover.',
+  blitz: 'Short fuse. Every second counts and every clear is a lifeline.',
 };
+
+interface FloatingBlock {
+  x: number;
+  y: number;
+  vy: number;
+  size: number;
+  color: number;
+  alpha: number;
+  rot: number;
+  vrot: number;
+}
 
 export class MenuScene implements Scene {
   container: Container;
@@ -23,15 +33,24 @@ export class MenuScene implements Scene {
   private width: number;
   private height: number;
   private leaderboard: Leaderboard;
+  private audio: AudioManager;
   private selectedDifficulty: Difficulty;
+  private showingHelp = false;
 
   // Rebuildable sections
   private difficultyContainer: Container | null = null;
-  private leaderboardContainer: Container | null = null;
+  private lowerContainer: Container | null = null;
+  private title: Text | null = null;
+  private titlePhase = 0;
+
+  // Ambient background
+  private bgGfx: Graphics;
+  private blocks: FloatingBlock[] = [];
 
   constructor(
     width: number, height: number,
     leaderboard: Leaderboard,
+    audio: AudioManager,
     selectedDifficulty: Difficulty,
     onDifficultyChange: (d: Difficulty) => void,
     onPlay: () => void,
@@ -39,107 +58,134 @@ export class MenuScene implements Scene {
     this.width = width;
     this.height = height;
     this.leaderboard = leaderboard;
+    this.audio = audio;
     this.selectedDifficulty = selectedDifficulty;
     this.onDifficultyChange = onDifficultyChange;
     this.onPlay = onPlay;
     this.container = new Container();
+    this.bgGfx = new Graphics();
+    this.container.addChild(this.bgGfx);
+    this.initBlocks();
     this.build();
   }
 
+  private initBlocks(): void {
+    this.blocks = [];
+    for (let i = 0; i < 14; i++) {
+      this.blocks.push(this.spawnBlock(true));
+    }
+  }
+
+  private spawnBlock(anywhere: boolean): FloatingBlock {
+    const size = 14 + Math.random() * 26;
+    return {
+      x: Math.random() * this.width,
+      y: anywhere ? Math.random() * this.height : this.height + size,
+      vy: -(8 + Math.random() * 14),
+      size,
+      color: PIECE_COLORS[Math.floor(Math.random() * PIECE_COLORS.length)],
+      alpha: 0.10 + Math.random() * 0.12,
+      rot: Math.random() * Math.PI,
+      vrot: (Math.random() - 0.5) * 0.4,
+    };
+  }
+
   private build(): void {
+    const cx = this.width / 2;
+
     // Title
-    const title = new Text({
+    this.title = new Text({
       text: 'SPEED BLOCK',
       style: new TextStyle({
         fontFamily: FONT_DISPLAY,
-        fontSize: 44,
+        fontSize: Math.min(44, this.width / 10),
         fontWeight: '800',
         fill: THEME.textPrimary,
-        letterSpacing: 8,
-        dropShadow: {
-          alpha: 0.3,
-          blur: 4,
-          color: 0x000000,
-          distance: 2,
-        },
+        letterSpacing: 6,
+        dropShadow: { alpha: 0.5, blur: 18, color: THEME.accent, distance: 0 },
       }),
     });
-    title.anchor.set(0.5);
-    title.x = this.width / 2;
-    title.y = this.height * 0.1;
-    this.container.addChild(title);
+    this.title.anchor.set(0.5);
+    this.title.x = cx;
+    this.title.y = this.height * 0.09;
+    this.container.addChild(this.title);
 
-    // Decorative line under title
-    const line = new Graphics();
-    const lineW = 120;
-    line.rect(this.width / 2 - lineW / 2, this.height * 0.14, lineW, 2);
-    line.fill({ color: 0xffffff, alpha: 0.2 });
-    this.container.addChild(line);
+    const tagline = createBodyText('FILL LINES · CHAIN CLEARS · BEAT THE CLOCK', cx, this.height * 0.09 + 26, {
+      fontSize: 10,
+      color: THEME.textMuted,
+      wrapWidth: this.width - 32,
+    });
+    tagline.style.letterSpacing = 2;
+    this.container.addChild(tagline);
 
     // Difficulty selector
     this.buildDifficultySelector();
 
     // Play button
-    const btnW = 200;
-    const btnH = 56;
-    const btnX = this.width / 2 - btnW / 2;
-    const btnY = this.height * 0.28;
+    this.container.addChild(createButton('PLAY', cx, this.height * 0.335, () => {
+      this.audio.unlock();
+      this.audio.playUiClick();
+      this.onPlay();
+    }, { width: 220, height: 58, fontSize: 22, letterSpacing: 6 }));
 
-    const btn = new Graphics();
-    btn.roundRect(btnX - 2, btnY - 2, btnW + 4, btnH + 4, 14);
-    btn.fill({ color: THEME.accent, alpha: 0.15 });
-    btn.roundRect(btnX, btnY, btnW, btnH, 12);
-    btn.fill({ color: THEME.btnPrimary });
-    btn.roundRect(btnX + 1, btnY + 1, btnW - 2, btnH * 0.45, 11);
-    btn.fill({ color: THEME.btnHighlight, alpha: 0.15 });
-    this.container.addChild(btn);
+    // Settings row
+    const settings = loadSettings();
+    const toggleY = this.height * 0.335 + 52;
+    const pillW = Math.min(104, (this.width - 40) / 3);
+    const pillGap = pillW + 6;
+    this.container.addChild(createToggle('SOUND', cx - pillGap, toggleY, settings.sfx, (v) => {
+      this.audio.unlock();
+      this.audio.setSfxEnabled(v);
+      this.audio.playUiClick();
+      return v;
+    }, pillW));
+    this.container.addChild(createToggle('MUSIC', cx, toggleY, settings.music, (v) => {
+      this.audio.unlock();
+      this.audio.setMusicEnabled(v);
+      this.audio.playUiClick();
+      return v;
+    }, pillW));
+    this.container.addChild(createToggle('HAPTIC', cx + pillGap, toggleY, settings.haptics, (v) => {
+      updateSettings({ haptics: v });
+      this.audio.playUiClick();
+      if (v && navigator.vibrate) { try { navigator.vibrate(20); } catch { /* */ } }
+      return v;
+    }, pillW));
 
-    const btnText = new Text({
-      text: 'PLAY',
-      style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
-        fontSize: 22,
-        fontWeight: '700',
-        fill: THEME.textPrimary,
-        letterSpacing: 6,
-      }),
+    // Help / refresh (top corners)
+    this.addCornerButton('?', 30, () => {
+      this.audio.playUiClick();
+      this.showingHelp = !this.showingHelp;
+      this.buildLowerSection();
     });
-    btnText.anchor.set(0.5);
-    btnText.x = this.width / 2;
-    btnText.y = btnY + btnH / 2;
-    this.container.addChild(btnText);
-
-    // Play button click (stops propagation so full-screen handler doesn't double-fire)
-    btn.eventMode = 'static';
-    btn.cursor = 'pointer';
-    btn.on('pointerdown', (e) => { e.stopPropagation(); this.onPlay(); });
-    btnText.eventMode = 'static';
-    btnText.cursor = 'pointer';
-    btnText.on('pointerdown', (e) => { e.stopPropagation(); this.onPlay(); });
-
-    // Refresh button (top-right corner)
-    const refreshText = new Text({
-      text: '↻',
-      style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
-        fontSize: 22,
-        fill: THEME.textMuted,
-      }),
-    });
-    refreshText.anchor.set(0.5);
-    refreshText.x = this.width - 30;
-    refreshText.y = 28;
-    this.container.addChild(refreshText);
-
-    refreshText.eventMode = 'static';
-    refreshText.cursor = 'pointer';
-    refreshText.on('pointerdown', (e) => {
-      e.stopPropagation();
+    this.addCornerButton('↻', this.width - 30, () => {
       window.location.reload();
     });
 
-    // Leaderboard
-    this.buildLeaderboard();
+    this.buildLowerSection();
+  }
+
+  private addCornerButton(label: string, x: number, onClick: () => void): void {
+    const root = new Container();
+    const bg = new Graphics();
+    bg.circle(x, 28, 17);
+    bg.fill({ color: 0x000000, alpha: 0.28 });
+    bg.circle(x, 28, 17);
+    bg.stroke({ color: 0xffffff, alpha: 0.12, width: 1 });
+    root.addChild(bg);
+    const text = new Text({
+      text: label,
+      style: new TextStyle({ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: '700', fill: THEME.textSecondary }),
+    });
+    text.anchor.set(0.5);
+    text.x = x;
+    text.y = 28;
+    root.addChild(text);
+    root.eventMode = 'static';
+    root.cursor = 'pointer';
+    root.on('pointerdown', (e) => e.stopPropagation());
+    root.on('pointerup', (e) => { e.stopPropagation(); onClick(); });
+    this.container.addChild(root);
   }
 
   // ── Difficulty selector ──
@@ -154,9 +200,9 @@ export class MenuScene implements Scene {
     this.difficultyContainer = group;
     this.container.addChild(group);
 
-    const selectorY = this.height * 0.19;
-    const chipW = 80;
-    const chipH = 32;
+    const selectorY = this.height * 0.175;
+    const chipW = Math.min(92, (this.width - 60) / 3);
+    const chipH = 36;
     const gap = 10;
     const totalW = DIFFICULTIES.length * chipW + (DIFFICULTIES.length - 1) * gap;
     const startX = this.width / 2 - totalW / 2;
@@ -169,15 +215,17 @@ export class MenuScene implements Scene {
 
       const chip = new Graphics();
       if (isSelected) {
-        chip.roundRect(x - 1, selectorY - 1, chipW + 2, chipH + 2, 9);
-        chip.fill({ color: accent, alpha: 0.28 });
-        chip.roundRect(x, selectorY, chipW, chipH, 8);
+        chip.roundRect(x - 2, selectorY - 2, chipW + 4, chipH + 4, 11);
+        chip.fill({ color: accent, alpha: 0.3 });
+        chip.roundRect(x, selectorY, chipW, chipH, 9);
         chip.fill({ color: accent });
+        chip.roundRect(x + 1, selectorY + 1, chipW - 2, chipH * 0.45, 8);
+        chip.fill({ color: 0xffffff, alpha: 0.14 });
       } else {
-        chip.roundRect(x, selectorY, chipW, chipH, 8);
-        chip.fill({ color: 0x1a1e3a, alpha: 0.8 });
-        chip.roundRect(x, selectorY, chipW, chipH, 8);
-        chip.stroke({ color: THEME.cellWellBorder, alpha: 0.5, width: 1 });
+        chip.roundRect(x, selectorY, chipW, chipH, 9);
+        chip.fill({ color: 0x000000, alpha: 0.3 });
+        chip.roundRect(x, selectorY, chipW, chipH, 9);
+        chip.stroke({ color: 0xffffff, alpha: 0.1, width: 1 });
       }
       group.addChild(chip);
 
@@ -186,7 +234,7 @@ export class MenuScene implements Scene {
         style: new TextStyle({
           fontFamily: FONT_DISPLAY,
           fontSize: 12,
-          fontWeight: isSelected ? '700' : '500',
+          fontWeight: isSelected ? '800' : '600',
           fill: isSelected ? THEME.textPrimary : THEME.textSecondary,
           letterSpacing: 2,
         }),
@@ -196,129 +244,216 @@ export class MenuScene implements Scene {
       label.y = selectorY + chipH / 2;
       group.addChild(label);
 
-      chip.eventMode = 'static';
-      chip.cursor = 'pointer';
-      chip.on('pointerdown', (e) => {
+      const hit = new Container();
+      hit.addChild(chip);
+      hit.addChild(label);
+      group.addChild(hit);
+      hit.eventMode = 'static';
+      hit.cursor = 'pointer';
+      hit.on('pointerdown', (e) => e.stopPropagation());
+      hit.on('pointerup', (e) => {
         e.stopPropagation();
         if (diff === this.selectedDifficulty) return;
+        this.audio.playUiClick();
         this.selectedDifficulty = diff;
         this.onDifficultyChange(diff);
         this.buildDifficultySelector();
-        this.buildLeaderboard();
-      });
-      label.eventMode = 'static';
-      label.cursor = 'pointer';
-      label.on('pointerdown', (e) => {
-        e.stopPropagation();
-        if (diff === this.selectedDifficulty) return;
-        this.selectedDifficulty = diff;
-        this.onDifficultyChange(diff);
-        this.buildDifficultySelector();
-        this.buildLeaderboard();
+        this.buildLowerSection();
       });
     }
 
-    const desc = new Text({
-      text: DIFFICULTY_DESCRIPTIONS[this.selectedDifficulty],
+    const cfg = DIFFICULTY_CONFIGS[this.selectedDifficulty].timer;
+    const desc = createBodyText(DIFFICULTY_DESCRIPTIONS[this.selectedDifficulty], this.width / 2, selectorY + chipH + 12, {
+      fontSize: 11,
+      color: DIFFICULTY_COLORS[this.selectedDifficulty],
+      wrapWidth: Math.min(300, this.width - 40),
+    });
+    group.addChild(desc);
+
+    const best = getPersonalBest(this.selectedDifficulty);
+    const games = getGamesPlayed(this.selectedDifficulty);
+    const statsLine = best > 0
+      ? `BEST ${best.toLocaleString()}   ·   ${games} ${games === 1 ? 'GAME' : 'GAMES'}   ·   ${cfg.startSeconds}s CLOCK`
+      : `${cfg.startSeconds}s CLOCK   ·   NO RUNS YET`;
+    const stats = new Text({
+      text: statsLine,
       style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
+        fontFamily: FONT_MONO,
         fontSize: 11,
-        fontWeight: '500',
-        fill: DIFFICULTY_COLORS[this.selectedDifficulty],
-        letterSpacing: 1.5,
-        align: 'center',
-        wordWrap: true,
-        wordWrapWidth: 260,
+        fill: THEME.textMuted,
+        letterSpacing: 1,
       }),
     });
-    desc.anchor.set(0.5, 0);
-    desc.x = this.width / 2;
-    desc.y = selectorY + chipH + 14;
-    group.addChild(desc);
+    stats.anchor.set(0.5, 0);
+    stats.x = this.width / 2;
+    stats.y = selectorY + chipH + 50;
+    group.addChild(stats);
   }
 
-  // ── Leaderboard ──
+  // ── Lower section: leaderboard or help ──
 
-  private buildLeaderboard(): void {
-    if (this.leaderboardContainer) {
-      this.container.removeChild(this.leaderboardContainer);
-      this.leaderboardContainer.destroy({ children: true });
-      this.leaderboardContainer = null;
+  private buildLowerSection(): void {
+    if (this.lowerContainer) {
+      this.container.removeChild(this.lowerContainer);
+      this.lowerContainer.destroy({ children: true });
+      this.lowerContainer = null;
+    }
+    const group = new Container();
+    this.lowerContainer = group;
+    this.container.addChild(group);
+
+    if (this.showingHelp) {
+      this.buildHelp(group);
+    } else {
+      this.buildLeaderboard(group);
+    }
+  }
+
+  private buildHelp(group: Container): void {
+    const cx = this.width / 2;
+    const top = this.height * 0.47;
+    const panelW = Math.min(360, this.width - 32);
+    const panelH = Math.min(this.height - top - 16, 330);
+    const panel = new Graphics();
+    drawPanel(panel, cx - panelW / 2, top, panelW, panelH, 16, 0.55);
+    group.addChild(panel);
+
+    group.addChild(createSectionLabel('HOW TO PLAY', cx, top + 14, panelW - 60));
+
+    const lines = [
+      'Drag pieces onto the 8×8 board. Fill a whole row or column to clear it.',
+      'Clearing on consecutive placements builds a STREAK that multiplies points. Miss a few placements and it breaks.',
+      'The clock never stops. Each placement adds time, clears add more, and fast placements add the most.',
+      'Golden cells show where one block would finish a line. Dimmed tray pieces have nowhere to go.',
+      'The game ends when the clock hits zero or no piece fits.',
+    ];
+    let y = top + 48;
+    for (const line of lines) {
+      const bullet = new Graphics();
+      bullet.circle(cx - panelW / 2 + 22, y + 9, 3);
+      bullet.fill({ color: THEME.accentGlow });
+      group.addChild(bullet);
+      const t = createBodyText(line, cx - panelW / 2 + 34, y, {
+        fontSize: 11.5,
+        wrapWidth: panelW - 54,
+        align: 'left',
+      });
+      group.addChild(t);
+      y += t.height + 10;
+      if (y > top + panelH - 30) break;
     }
 
+    // Decorative sample piece in the corner
+    const g = new Graphics();
+    const s = 10;
+    const bx = cx + panelW / 2 - 50;
+    const by = top + 12;
+    drawBeveledBlock(g, bx, by, s, THEME.accent, 3);
+    drawBeveledBlock(g, bx + s + 1, by, s, THEME.accent, 3);
+    drawBeveledBlock(g, bx + (s + 1) * 2, by, s, THEME.accent, 3);
+    drawBeveledBlock(g, bx, by + s + 1, s, THEME.accent, 3);
+    group.addChild(g);
+  }
+
+  private buildLeaderboard(group: Container): void {
     const entries = this.leaderboard.getEntries();
-    if (entries.length === 0) return;
+    const cx = this.width / 2;
+    const startY = this.height * 0.47;
 
-    const lbContainer = new Container();
-    this.leaderboardContainer = lbContainer;
-    this.container.addChild(lbContainer);
+    group.addChild(createSectionLabel(`LEADERBOARD — ${DIFFICULTY_LABELS[this.selectedDifficulty]}`, cx, startY));
 
-    const startY = this.height * 0.43;
+    if (entries.length === 0) {
+      group.addChild(createBodyText('No scores yet. Be the first on the board.', cx, startY + 40, {
+        fontSize: 12,
+        color: THEME.textMuted,
+      }));
+      return;
+    }
 
-    const headerText = new Text({
-      text: `LEADERBOARD — ${DIFFICULTY_LABELS[this.selectedDifficulty]}`,
-      style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
-        fontSize: 13,
-        fontWeight: '600',
-        fill: THEME.textSecondary,
-        letterSpacing: 4,
-      }),
-    });
-    headerText.anchor.set(0.5, 0);
-    headerText.x = this.width / 2;
-    headerText.y = startY;
-    lbContainer.addChild(headerText);
+    const lineHeight = 28;
+    const listStartY = startY + 40;
+    const available = this.height - listStartY - 16;
+    const maxRows = Math.max(3, Math.min(10, Math.floor(available / lineHeight)));
+    const halfW = Math.min(150, this.width / 2 - 24);
+    const leftX = cx - halfW;
+    const rightX = cx + halfW;
 
-    // Thin separator
-    const sep = new Graphics();
-    sep.rect(this.width / 2 - 80, startY + 24, 160, 1);
-    sep.fill({ color: THEME.cellWellBorder, alpha: 0.5 });
-    lbContainer.addChild(sep);
-
-    const lineHeight = 30;
-    const listStartY = startY + 36;
-    const leftX = this.width / 2 - 140;
-    const rightX = this.width / 2 + 140;
-
-    for (let i = 0; i < entries.length; i++) {
+    for (let i = 0; i < Math.min(entries.length, maxRows); i++) {
       const entry = entries[i];
       const y = listStartY + i * lineHeight;
       const isTop3 = i < 3;
-      const color = isTop3 ? THEME.textPrimary : THEME.textSecondary;
+      const color = i === 0 ? THEME.gold : isTop3 ? THEME.textPrimary : THEME.textSecondary;
       const fontSize = i === 0 ? 16 : 14;
+
+      if (i % 2 === 0) {
+        const row = new Graphics();
+        row.roundRect(leftX - 10, y - lineHeight / 2 + 2, halfW * 2 + 20, lineHeight - 4, 6);
+        row.fill({ color: 0x000000, alpha: 0.14 });
+        group.addChild(row);
+      }
+
+      const rank = new Text({
+        text: `${i + 1}`,
+        style: new TextStyle({ fontFamily: FONT_MONO, fontSize, fill: THEME.textMuted }),
+      });
+      rank.anchor.set(0, 0.5);
+      rank.x = leftX;
+      rank.y = y;
+      group.addChild(rank);
 
       const displayName = entry.name || 'Player';
       const labelText = new Text({
-        text: `${i + 1}.  ${displayName}`,
+        text: displayName,
         style: new TextStyle({
           fontFamily: FONT_DISPLAY,
           fontSize,
-          fontWeight: isTop3 ? '600' : '400',
+          fontWeight: isTop3 ? '700' : '500',
           fill: color,
         }),
       });
       labelText.anchor.set(0, 0.5);
-      labelText.x = leftX;
+      labelText.x = leftX + 28;
       labelText.y = y;
-      lbContainer.addChild(labelText);
+      group.addChild(labelText);
 
       const valText = new Text({
         text: entry.score.toLocaleString(),
-        style: new TextStyle({
-          fontFamily: FONT_MONO,
-          fontSize,
-          fill: color,
-        }),
+        style: new TextStyle({ fontFamily: FONT_MONO, fontSize, fill: color }),
       });
       valText.anchor.set(1, 0.5);
       valText.x = rightX;
       valText.y = y;
-      lbContainer.addChild(valText);
+      group.addChild(valText);
     }
   }
 
-  update(_dt: number): void {}
+  update(dt: number): void {
+    // Title breathing glow
+    this.titlePhase += dt;
+    if (this.title) {
+      this.title.scale.set(1 + Math.sin(this.titlePhase * 1.6) * 0.012);
+    }
+
+    // Floating blocks
+    const g = this.bgGfx;
+    g.clear();
+    for (let i = 0; i < this.blocks.length; i++) {
+      const b = this.blocks[i];
+      b.y += b.vy * dt;
+      b.rot += b.vrot * dt;
+      if (b.y < -b.size * 2) this.blocks[i] = this.spawnBlock(false);
+      const half = b.size / 2;
+      g.roundRect(b.x - half, b.y - half, b.size, b.size, b.size * 0.2);
+      g.fill({ color: b.color, alpha: b.alpha });
+      g.roundRect(b.x - half + 2, b.y - half + 2, b.size - 4, b.size * 0.35, b.size * 0.15);
+      g.fill({ color: 0xffffff, alpha: b.alpha * 0.5 });
+    }
+  }
+
+  /** Called when remote leaderboard data arrives after the menu was built */
+  refreshLeaderboard(): void {
+    if (!this.showingHelp) this.buildLowerSection();
+  }
 
   enter(): void {}
   exit(): void {

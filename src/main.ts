@@ -7,17 +7,33 @@ import { GameOverScene } from './scenes/GameOverScene';
 import { AudioManager } from './audio/AudioManager';
 import { Leaderboard } from './core/Leaderboard';
 import { Difficulty, DIFFICULTY_CONFIGS } from './core/Config';
+import { incrementGamesPlayed } from './core/Settings';
 import { RunSummary } from './core/types';
+import { THEME } from './rendering/Theme';
+
+const LAST_DIFFICULTY_KEY = 'speedblock_last_difficulty';
+
+function readLastDifficulty(): Difficulty {
+  try {
+    const raw = localStorage.getItem(LAST_DIFFICULTY_KEY);
+    if (raw === 'chill' || raw === 'fast' || raw === 'blitz') return raw;
+  } catch { /* */ }
+  return 'fast';
+}
+
+function saveLastDifficulty(d: Difficulty): void {
+  try { localStorage.setItem(LAST_DIFFICULTY_KEY, d); } catch { /* */ }
+}
 
 async function boot() {
   const container = document.getElementById('game-container')!;
 
   const app = new Application();
   await app.init({
-    background: 0x4a5ba6,
+    background: THEME.bg,
     resizeTo: window,
     antialias: true,
-    resolution: window.devicePixelRatio || 1,
+    resolution: Math.min(window.devicePixelRatio || 1, 2),
     autoDensity: true,
   });
 
@@ -28,22 +44,41 @@ async function boot() {
   const audioManager = new AudioManager();
   const sceneManager = new SceneManager(app.stage);
 
-  let selectedDifficulty: Difficulty = 'fast';
+  // Browsers require a user gesture before audio can start. Unlock on the
+  // very first interaction so the first sound effect isn't swallowed.
+  const unlockAudio = () => {
+    audioManager.unlock();
+    window.removeEventListener('pointerdown', unlockAudio);
+    window.removeEventListener('keydown', unlockAudio);
+  };
+  window.addEventListener('pointerdown', unlockAudio);
+  window.addEventListener('keydown', unlockAudio);
+
+  let selectedDifficulty: Difficulty = readLastDifficulty();
   const leaderboard = new Leaderboard(selectedDifficulty);
 
   function showMenu() {
     const layout = layoutManager.recalculate(window.innerWidth, window.innerHeight);
+    app.renderer.background.color = THEME.bg;
     const menu = new MenuScene(
       layout.width, layout.height,
       leaderboard,
+      audioManager,
       selectedDifficulty,
       (difficulty) => {
         selectedDifficulty = difficulty;
-        leaderboard.switchDifficulty(difficulty);
+        saveLastDifficulty(difficulty);
+        leaderboard.switchDifficulty(difficulty).then(() => {
+          if (sceneManager.current === menu) menu.refreshLeaderboard();
+        });
       },
       () => startGame(false),
     );
     sceneManager.switchTo(menu);
+    // Remote scores may arrive after the menu is drawn
+    leaderboard.waitForRemote().then(() => {
+      if (sceneManager.current === menu) menu.refreshLeaderboard();
+    });
   }
 
   /** Set the app background color (for color temperature shifting) */
@@ -53,6 +88,7 @@ async function boot() {
 
   function startGame(skipCountdown: boolean = false) {
     const config = DIFFICULTY_CONFIGS[selectedDifficulty];
+    incrementGamesPlayed(selectedDifficulty);
     const gameScene = new GameScene(
       app.canvas,
       layoutManager,
@@ -71,8 +107,9 @@ async function boot() {
     const layout = layoutManager.layout;
     const gameOver = new GameOverScene(
       layout.width, layout.height,
-      summary.score,
+      summary,
       leaderboard,
+      audioManager,
       selectedDifficulty,
       () => startGame(false),
       () => showMenu(),

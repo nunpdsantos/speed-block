@@ -37,6 +37,8 @@ export interface ClearResult {
   rows: number[];
   cols: number[];
   cellsCleared: GridPos[];
+  /** Color of each cleared cell (parallel to cellsCleared) — for the clear animation */
+  cellColors: CellColor[];
   totalCellsRemoved: number;
   totalLinesCleared: number;
 }
@@ -57,17 +59,33 @@ export interface RunSummary {
   endCause: RunEndCause;
   totalTurns: number;
   clearTurns: number;
+  linesCleared: number;
+  maxLinesInOneClear: number;
+  boardClears: number;
   maxStreak: number;
   maxDrySpell: number;
   gameElapsed: number;
   timeRemaining: number;
   boardFillFraction: number;
   peakBoardFillFraction: number;
+  /** Personal best before this run (0 if none) */
+  previousBest: number;
+  /** True if this run set a new personal best */
+  isNewBest: boolean;
 }
 
 // ── Feedback event: the contract between core → rendering ──
 export interface FeedbackEvent {
-  type: 'place' | 'clear' | 'combo' | 'gameOver' | 'newBatch' | 'boardClear' | 'timeUp' | 'newPieceIntroduced';
+  type:
+    | 'place'
+    | 'clear'
+    | 'combo'
+    | 'gameOver'
+    | 'newBatch'
+    | 'boardClear'
+    | 'timeUp'
+    | 'newPieceIntroduced'
+    | 'newBest';
   pieceIndex?: number;
   placedCells?: GridPos[];
   clearResult?: ClearResult;
@@ -83,6 +101,10 @@ export interface FeedbackEvent {
   /** For newPieceIntroduced events */
   newPieceTypeIds?: string[];
   newPieceNames?: string[];
+  /** Seconds of learning grace granted when a new piece type appears */
+  graceSeconds?: number;
+  /** For newBest events: the best that was just beaten */
+  previousBest?: number;
 }
 
 // ── Color palette — bold and saturated ──

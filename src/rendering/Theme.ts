@@ -1,16 +1,20 @@
+import type { Graphics } from 'pixi.js';
+import { Difficulty } from '../core/Config';
+
 // ── Visual Identity ──
 
 // Typography
 export const FONT_DISPLAY = '"Oxanium", sans-serif';
 export const FONT_MONO = '"Share Tech Mono", monospace';
 
-// Color system — bright blue background with dark grid
+// Color system — deep blue page, near-black board, saturated blocks
 export const THEME = {
   // Backgrounds
-  bg: 0x4a5ba6,        // medium blue page background
-  gridBg: 0x191e3c,    // dark navy grid board
-  cellWell: 0x1f2548,   // cell depression (slightly lighter than grid)
+  bg: 0x3d4c9a,        // page background (animated by FXManager)
+  gridBg: 0x141833,    // board plate
+  cellWell: 0x1c2145,  // cell depression (slightly lighter than plate)
   cellWellBorder: 0x2a3260,
+  panel: 0x0f1330,     // HUD chips / panels
 
   // Text
   textPrimary: 0xffffff,
@@ -23,12 +27,22 @@ export const THEME = {
   gold: 0xfbbf24,
   goldGlow: 0xfde047,
   danger: 0xef4444,
-  success: 0x22d3ee,
+  warning: 0xf59e0b,
+  success: 0x22c55e,
+  cyan: 0x22d3ee,
 
   // UI
   btnPrimary: 0x4a7af7,
   btnHighlight: 0x6b9aff,
+  btnSecondary: 0x3a3f66,
   overlay: 0x0a0e20,
+};
+
+/** Accent color per difficulty, shared by menu, HUD and game-over */
+export const DIFFICULTY_COLORS: Record<Difficulty, number> = {
+  chill: 0x22c55e,
+  fast: THEME.accent,
+  blitz: 0xf97316,
 };
 
 // Color utilities
@@ -57,29 +71,89 @@ export function lerpColor(a: number, b: number, t: number): number {
   return (r << 16) | (g << 8) | bv;
 }
 
+/** Easing helpers shared by the renderers */
+export function easeOutCubic(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  return 1 - Math.pow(1 - c, 3);
+}
+
+export function easeOutBack(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  const s = 1.70158;
+  return 1 + (s + 1) * Math.pow(c - 1, 3) + s * Math.pow(c - 1, 2);
+}
+
 /**
- * Draw a 3D beveled block tile — matches the raised-tile style
- * of the original game with thick highlight and visible shadow edge.
+ * Draw a 3D beveled block tile — a raised tile with a bright top edge,
+ * a darker bottom-right shadow edge and a soft inner glow so blocks
+ * read as glossy plastic rather than flat squares.
  */
 export function drawBeveledBlock(
-  g: import('pixi.js').Graphics,
+  g: Graphics,
   x: number,
   y: number,
   size: number,
   color: number,
   radius: number = 5,
+  alpha: number = 1,
 ): void {
-  const bevel = Math.max(Math.floor(size * 0.06), 2);
+  const bevel = Math.max(Math.floor(size * 0.07), 2);
 
   // Full block filled with shadow/dark color (visible on bottom-right edges)
   g.roundRect(x, y, size, size, radius);
-  g.fill({ color: darken(color, 0.35) });
+  g.fill({ color: darken(color, 0.4), alpha });
 
   // Main face (inset from bottom-right to reveal shadow edge)
   g.roundRect(x, y, size - bevel, size - bevel, radius);
-  g.fill({ color });
+  g.fill({ color, alpha });
 
   // Top-left highlight edge (bright strip)
-  g.roundRect(x + 1, y + 1, size - bevel - 2, Math.max(size * 0.38, 6), radius - 1);
-  g.fill({ color: lighten(color, 0.28), alpha: 0.55 });
+  g.roundRect(x + 1, y + 1, size - bevel - 2, Math.max(size * 0.36, 6), Math.max(radius - 1, 1));
+  g.fill({ color: lighten(color, 0.3), alpha: 0.5 * alpha });
+
+  // Small specular dot in the corner
+  const dot = Math.max(size * 0.12, 2);
+  g.roundRect(x + size * 0.14, y + size * 0.14, dot, dot, dot / 2);
+  g.fill({ color: 0xffffff, alpha: 0.35 * alpha });
+}
+
+/** Rounded pill-shaped button with a highlight strip */
+export function drawButton(
+  g: Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  color: number,
+  radius: number = 12,
+  glow: boolean = true,
+): void {
+  if (glow) {
+    g.roundRect(x - 3, y - 3, w + 6, h + 6, radius + 3);
+    g.fill({ color, alpha: 0.18 });
+  }
+  g.roundRect(x, y + 3, w, h, radius);
+  g.fill({ color: darken(color, 0.45) });
+  g.roundRect(x, y, w, h, radius);
+  g.fill({ color });
+  g.roundRect(x + 1, y + 1, w - 2, h * 0.45, radius - 1);
+  g.fill({ color: 0xffffff, alpha: 0.14 });
+}
+
+/** Translucent glass panel used behind HUD groups and dialogs */
+export function drawPanel(
+  g: Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number = 14,
+  alpha: number = 0.55,
+): void {
+  g.roundRect(x, y + 2, w, h, radius);
+  g.fill({ color: 0x000000, alpha: alpha * 0.4 });
+  g.roundRect(x, y, w, h, radius);
+  g.fill({ color: THEME.panel, alpha });
+  g.roundRect(x, y, w, h, radius);
+  g.stroke({ color: 0xffffff, alpha: 0.08, width: 1 });
 }

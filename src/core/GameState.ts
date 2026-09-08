@@ -3,6 +3,7 @@ import { PieceGenerator } from './PieceGenerator';
 import { ScoreEngine } from './ScoreEngine';
 import { Difficulty, GameConfig, DEFAULT_CONFIG } from './Config';
 import { getRunPacing } from './RunPacing';
+import { getPersonalBest, recordPersonalBest } from './Settings';
 import { PieceInstance, FeedbackEvent, ClearResult, RunEndCause, RunSummary } from './types';
 
 /** Human-readable display name for a piece typeId */
@@ -10,22 +11,18 @@ function pieceDisplayName(typeId: string): string {
   return typeId.replace(/_/g, ' ').toUpperCase();
 }
 
-/** Read the cached top score from localStorage for a given difficulty */
-function readCachedTopScore(difficulty: Difficulty): number {
-  try {
-    const raw = localStorage.getItem(`speedblock_${difficulty}_top10`);
-    if (raw) {
-      const entries = JSON.parse(raw);
-      return entries.length > 0 ? entries[0].score : 0;
-    }
-  } catch { /* */ }
-  return 0;
-}
+/** Seconds of learning grace granted per newly introduced piece type */
+const NEW_PIECE_GRACE_SECONDS: Record<Difficulty, number> = {
+  chill: 3,
+  fast: 2,
+  blitz: 1.5,
+};
 
 export class GameState {
   board: Board;
   activePieces: (PieceInstance | null)[];
   score: number;
+  /** Personal best for this difficulty at the moment the run started */
   highScore: number;
   streakCount: number;
   movesSinceLastClear: number;
@@ -42,9 +39,14 @@ export class GameState {
   deathCause: RunEndCause | null = null;
   totalTurns: number = 0;
   clearTurns: number = 0;
+  linesCleared: number = 0;
+  maxLinesInOneClear: number = 0;
+  boardClears: number = 0;
   maxStreak: number = 0;
   maxDrySpell: number = 0;
   peakBoardFillCount: number = 0;
+  /** True once this run has beaten the personal best (fires once) */
+  newBestReached: boolean = false;
 
   /** Piece type IDs that have appeared in this run (for NEW PIECE detection) */
   private seenTypeIds: Set<string> = new Set();
@@ -65,7 +67,7 @@ export class GameState {
     this.scoreEngine = new ScoreEngine(config.scoring, config.timer);
     this.activePieces = [null, null, null];
     this.score = 0;
-    this.highScore = readCachedTopScore(difficulty);
+    this.highScore = getPersonalBest(difficulty);
     this.streakCount = 0;
     this.movesSinceLastClear = 0;
     this.piecesPlacedInBatch = 0;
@@ -79,6 +81,20 @@ export class GameState {
   /** Current speed fraction (live, for UI display): 1.0 = instant, min = slow */
   get currentSpeedFraction(): number {
     return this.scoreEngine.getSpeedFraction(this.pieceElapsed);
+  }
+
+  /** Fraction of the board currently occupied (0..1) */
+  get boardFillFraction(): number {
+    return this.board.occupiedCount() / 64;
+  }
+
+  /**
+   * How many more non-clearing placements the current streak survives.
+   * Returns 0 when there is no streak to protect.
+   */
+  get streakSafeMoves(): number {
+    if (this.streakCount <= 0) return 0;
+    return Math.max(0, this.config.scoring.comboWindowPlacements - this.movesSinceLastClear);
   }
 
   /** Start a new game */
@@ -96,9 +112,14 @@ export class GameState {
     this.deathCause = null;
     this.totalTurns = 0;
     this.clearTurns = 0;
+    this.linesCleared = 0;
+    this.maxLinesInOneClear = 0;
+    this.boardClears = 0;
     this.maxStreak = 0;
     this.maxDrySpell = 0;
     this.peakBoardFillCount = 0;
+    this.newBestReached = false;
+    this.highScore = getPersonalBest(this.difficulty);
     const batch = this.generator.generateBatch(this.board, this.getGenerationContext());
     this.activePieces = [...batch];
 
@@ -124,6 +145,7 @@ export class GameState {
     if (this.timeRemaining <= 0) {
       this.isGameOver = true;
       this.deathCause = 'timeout';
+      this.finalizeBest();
       return true;
     }
     return false;
@@ -134,18 +156,24 @@ export class GameState {
     this.timeRemaining = Math.min(this.timeRemaining + seconds, this.config.timer.maxSeconds);
   }
 
+  /** For each tray slot: true if that piece cannot be placed anywhere right now */
+  getUnplaceableMask(): boolean[] {
+    return this.activePieces.map(p => (p ? !this.board.canPlaceAnywhere(p.shape) : false));
+  }
+
   /** Attempt to place piece at index into grid at (row, col).
    *  Returns array of feedback events describing what happened. */
   tryPlace(pieceIndex: number, row: number, col: number): FeedbackEvent[] {
     const events: FeedbackEvent[] = [];
     const piece = this.activePieces[pieceIndex];
     if (!piece || this.isGameOver) return events;
+
+    // 1. Validate (an illegal drop is not a turn)
+    if (!this.board.canPlace(piece.shape, row, col)) return events;
+
     const preMoveMovesSinceLastClear = this.movesSinceLastClear;
     const preMoveTimeRemainingFraction = this.maxTime > 0 ? this.timeRemaining / this.maxTime : 1;
     this.totalTurns++;
-
-    // 1. Validate
-    if (!this.board.canPlace(piece.shape, row, col)) return events;
 
     // 2. Commit cells
     const placedCells = this.board.place(piece.shape, row, col, piece.color);
@@ -157,7 +185,7 @@ export class GameState {
 
     // 4. Clear lines (NO gravity)
     let clearResult: ClearResult = {
-      rows: [], cols: [], cellsCleared: [],
+      rows: [], cols: [], cellsCleared: [], cellColors: [],
       totalCellsRemoved: 0, totalLinesCleared: 0,
     };
     if (completed.rows.length > 0 || completed.cols.length > 0) {
@@ -170,6 +198,8 @@ export class GameState {
     // 6. Update combo state BEFORE scoring
     if (clearResult.totalLinesCleared > 0) {
       this.clearTurns++;
+      this.linesCleared += clearResult.totalLinesCleared;
+      this.maxLinesInOneClear = Math.max(this.maxLinesInOneClear, clearResult.totalLinesCleared);
       this.movesSinceLastClear = 0;
     } else {
       this.movesSinceLastClear++;
@@ -223,6 +253,7 @@ export class GameState {
       });
 
       if (isBoardClear) {
+        this.boardClears++;
         events.push({
           type: 'boardClear',
           isBoardClear: true,
@@ -235,12 +266,18 @@ export class GameState {
       events[0].timeBonus = tunedTimeBonus;
     }
 
-    // 11. Mark piece as placed
+    // 11. Personal best crossed?
+    if (!this.newBestReached && this.highScore > 0 && this.score > this.highScore) {
+      this.newBestReached = true;
+      events.push({ type: 'newBest', previousBest: this.highScore });
+    }
+
+    // 12. Mark piece as placed
     this.activePieces[pieceIndex] = null;
     this.piecesPlacedInBatch++;
     this.peakBoardFillCount = Math.max(this.peakBoardFillCount, this.board.occupiedCount());
 
-    // 12. Generate new batch if all 3 placed
+    // 13. Generate new batch if all 3 placed
     if (this.piecesPlacedInBatch >= 3) {
       this.piecesPlacedInBatch = 0;
       const newBatch = this.generator.generateBatch(this.board, this.getGenerationContext());
@@ -258,18 +295,23 @@ export class GameState {
         }
       }
       if (newTypeIds.length > 0) {
+        // One-time learning grace per new type — a rule of the game, so it lives here
+        const graceSeconds = NEW_PIECE_GRACE_SECONDS[this.difficulty] * newTypeIds.length;
+        this.addTime(graceSeconds);
         events.push({
           type: 'newPieceIntroduced',
           newPieceTypeIds: newTypeIds,
           newPieceNames: newNames,
+          graceSeconds,
         });
       }
     }
 
-    // 13. Check game over (no valid placement)
+    // 14. Check game over (no valid placement)
     if (this.checkGameOver()) {
       this.isGameOver = true;
       this.deathCause = 'board_lock';
+      this.finalizeBest();
       events.push({ type: 'gameOver', isGameOver: true });
     }
 
@@ -283,6 +325,11 @@ export class GameState {
       if (this.board.canPlaceAnywhere(piece.shape)) return false;
     }
     return true;
+  }
+
+  /** Persist the personal best at the end of a run (idempotent) */
+  finalizeBest(): void {
+    recordPersonalBest(this.difficulty, this.score);
   }
 
   private getGenerationContext() {
@@ -309,17 +356,23 @@ export class GameState {
   }
 
   buildRunSummary(endCauseOverride?: RunEndCause): RunSummary {
+    if (endCauseOverride === 'quit') this.finalizeBest();
     return {
       score: this.score,
       endCause: endCauseOverride ?? this.deathCause ?? 'board_lock',
       totalTurns: this.totalTurns,
       clearTurns: this.clearTurns,
+      linesCleared: this.linesCleared,
+      maxLinesInOneClear: this.maxLinesInOneClear,
+      boardClears: this.boardClears,
       maxStreak: this.maxStreak,
       maxDrySpell: this.maxDrySpell,
       gameElapsed: this.gameElapsed,
       timeRemaining: this.timeRemaining,
       boardFillFraction: this.board.occupiedCount() / 64,
       peakBoardFillFraction: this.peakBoardFillCount / 64,
+      previousBest: this.highScore,
+      isNewBest: this.score > this.highScore,
     };
   }
 }

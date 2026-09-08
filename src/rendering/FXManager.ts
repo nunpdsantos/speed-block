@@ -45,8 +45,8 @@ export class FXManager {
   // ── Color temperature ──
   private colorTempT = 0; // 0 = cool blue, 1 = warm
   private bgColorSetter: ((color: number) => void) | null = null;
-  private coolColor = 0x4a5ba6;
-  private warmColor = 0x8b3a5e;
+  private coolColor = 0x3d4c9a;
+  private warmColor = 0x7d3660;
 
   // ── Flow state (streak-driven) ──
   private flowIntensity = 0; // 0-1, driven by streak
@@ -94,8 +94,8 @@ export class FXManager {
         this.bgParticleCount = 34;
         break;
       default:
-        this.coolColor = 0x4a5ba6;
-        this.warmColor = 0x8b3a5e;
+        this.coolColor = 0x3d4c9a;
+        this.warmColor = 0x7d3660;
         this.bgParticleCount = 25;
         break;
     }

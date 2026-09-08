@@ -62,6 +62,35 @@ export class Board {
     return cells;
   }
 
+  /**
+   * How many lines (rows + columns) would be completed by placing `shape`
+   * at (row, col)? Assumes the placement is legal. This is a lookahead used
+   * by the piece generator and by the drag preview — it does not mutate.
+   */
+  linesCompletedBy(shape: ShapeMatrix, row: number, col: number): number {
+    const shapeRows = shape.length;
+    const shapeCols = shape[0].length;
+    let lines = 0;
+
+    // Rows touched by the shape
+    for (let r = 0; r < shapeRows; r++) {
+      let shapeCellsInRow = 0;
+      for (let c = 0; c < shapeCols; c++) if (shape[r][c]) shapeCellsInRow++;
+      if (shapeCellsInRow === 0) continue;
+      if (this.getRowFillCount(row + r) + shapeCellsInRow === GRID_SIZE) lines++;
+    }
+
+    // Columns touched by the shape
+    for (let c = 0; c < shapeCols; c++) {
+      let shapeCellsInCol = 0;
+      for (let r = 0; r < shapeRows; r++) if (shape[r][c]) shapeCellsInCol++;
+      if (shapeCellsInCol === 0) continue;
+      if (this.getColFillCount(col + c) + shapeCellsInCol === GRID_SIZE) lines++;
+    }
+
+    return lines;
+  }
+
   /** Find completed rows and columns */
   findCompleted(): { rows: number[]; cols: number[] } {
     const rows: number[] = [];
@@ -90,6 +119,7 @@ export class Board {
   clearLines(completed: { rows: number[]; cols: number[] }): ClearResult {
     const clearedSet = new Set<string>();
     const cellsCleared: GridPos[] = [];
+    const cellColors: CellColor[] = [];
 
     for (const r of completed.rows) {
       for (let c = 0; c < GRID_SIZE; c++) {
@@ -97,6 +127,7 @@ export class Board {
         if (!clearedSet.has(key)) {
           clearedSet.add(key);
           cellsCleared.push({ row: r, col: c });
+          cellColors.push(this.grid[r][c] ?? 0xffffff);
         }
         this.grid[r][c] = null;
       }
@@ -108,6 +139,7 @@ export class Board {
         if (!clearedSet.has(key)) {
           clearedSet.add(key);
           cellsCleared.push({ row: r, col: c });
+          cellColors.push(this.grid[r][c] ?? 0xffffff);
         }
         this.grid[r][c] = null;
       }
@@ -117,6 +149,7 @@ export class Board {
       rows: completed.rows,
       cols: completed.cols,
       cellsCleared,
+      cellColors,
       totalCellsRemoved: cellsCleared.length,
       totalLinesCleared: completed.rows.length + completed.cols.length,
     };
@@ -170,5 +203,12 @@ export class Board {
       }
     }
     return count;
+  }
+
+  /** Copy of this board (grid cloned) */
+  clone(): Board {
+    const next = new Board();
+    next.grid = this.grid.map(row => [...row]);
+    return next;
   }
 }

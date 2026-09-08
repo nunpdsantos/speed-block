@@ -1,23 +1,39 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { Layout } from './LayoutManager';
-import { FONT_DISPLAY, FONT_MONO, THEME } from './Theme';
+import { FONT_DISPLAY, FONT_MONO, THEME, drawPanel } from './Theme';
 import { Difficulty } from '../core/Config';
 import { getProgressStatus } from '../core/Progression';
 
+/**
+ * Heads-up display for the game scene.
+ *
+ * Layout (top → bottom):
+ *   ┌ TIER chip + progress ─── SCORE ─── BEST ┐
+ *   │            STREAK ×N  ●●○               │
+ *   │ 42s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ⚡1.0  │  ← time bank (thick) + speed bonus (thin)
+ *   └───────────────── board ─────────────────┘
+ */
 export class UIRenderer {
   container: Container;
   private scoreText: Text;
   private scoreLabelText: Text;
   private streakText: Text;
-  private highScoreText: Text;
+  private streakPips: Graphics;
+  private bestLabelText: Text;
+  private bestText: Text;
   private timerText: Text;
   private timerBarGfx: Graphics;
   private speedBarGfx: Graphics;
   private speedText: Text;
+  private tierPanel: Graphics;
   private rankText: Text;
   private goalText: Text;
   private progressBarGfx: Graphics;
   private layout!: Layout;
+
+  // Score punch animation
+  private scorePunch = 0;
+  private lastScore = 0;
 
   // Low-time pulse animation
   private pulsePhase = 0;
@@ -29,7 +45,7 @@ export class UIRenderer {
       text: 'SCORE',
       style: new TextStyle({
         fontFamily: FONT_DISPLAY,
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '600',
         fill: THEME.textSecondary,
         letterSpacing: 3,
@@ -40,10 +56,11 @@ export class UIRenderer {
       text: '0',
       style: new TextStyle({
         fontFamily: FONT_MONO,
-        fontSize: 34,
+        fontSize: 36,
         fontWeight: '400',
         fill: THEME.textPrimary,
         letterSpacing: 1,
+        dropShadow: { alpha: 0.35, blur: 8, color: 0x000000, distance: 2 },
       }),
     });
 
@@ -51,27 +68,34 @@ export class UIRenderer {
       text: '',
       style: new TextStyle({
         fontFamily: FONT_DISPLAY,
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '700',
         fill: THEME.gold,
         letterSpacing: 2,
-        dropShadow: {
-          alpha: 0.4,
-          blur: 6,
-          color: THEME.gold,
-          distance: 0,
-        },
+        dropShadow: { alpha: 0.4, blur: 6, color: THEME.gold, distance: 0 },
+      }),
+    });
+    this.streakPips = new Graphics();
+
+    this.bestLabelText = new Text({
+      text: 'BEST',
+      style: new TextStyle({
+        fontFamily: FONT_DISPLAY,
+        fontSize: 10,
+        fontWeight: '600',
+        fill: THEME.textMuted,
+        letterSpacing: 3,
       }),
     });
 
-    this.highScoreText = new Text({
+    this.bestText = new Text({
       text: '',
       style: new TextStyle({
-        fontFamily: FONT_DISPLAY,
-        fontSize: 12,
+        fontFamily: FONT_MONO,
+        fontSize: 15,
         fontWeight: '400',
-        fill: THEME.textMuted,
-        letterSpacing: 2,
+        fill: THEME.textSecondary,
+        letterSpacing: 1,
       }),
     });
 
@@ -79,7 +103,7 @@ export class UIRenderer {
       text: '',
       style: new TextStyle({
         fontFamily: FONT_MONO,
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '400',
         fill: THEME.textPrimary,
         letterSpacing: 1,
@@ -97,6 +121,8 @@ export class UIRenderer {
       }),
     });
 
+    this.tierPanel = new Graphics();
+
     this.rankText = new Text({
       text: '',
       style: new TextStyle({
@@ -112,10 +138,10 @@ export class UIRenderer {
       text: '',
       style: new TextStyle({
         fontFamily: FONT_DISPLAY,
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: '500',
         fill: THEME.textMuted,
-        letterSpacing: 2,
+        letterSpacing: 1.5,
       }),
     });
 
@@ -123,13 +149,16 @@ export class UIRenderer {
     this.speedBarGfx = new Graphics();
     this.progressBarGfx = new Graphics();
 
+    this.container.addChild(this.tierPanel);
     this.container.addChild(this.goalText);
-    this.container.addChild(this.highScoreText);
+    this.container.addChild(this.rankText);
+    this.container.addChild(this.progressBarGfx);
+    this.container.addChild(this.bestLabelText);
+    this.container.addChild(this.bestText);
     this.container.addChild(this.scoreLabelText);
     this.container.addChild(this.scoreText);
     this.container.addChild(this.streakText);
-    this.container.addChild(this.rankText);
-    this.container.addChild(this.progressBarGfx);
+    this.container.addChild(this.streakPips);
     this.container.addChild(this.speedBarGfx);
     this.container.addChild(this.timerBarGfx);
     this.container.addChild(this.timerText);
@@ -138,10 +167,12 @@ export class UIRenderer {
 
   setLayout(layout: Layout): void {
     this.layout = layout;
+    const left = layout.gridOriginX;
+    const right = layout.gridOriginX + layout.gridSize;
 
     this.scoreLabelText.anchor.set(0.5, 0);
     this.scoreLabelText.x = layout.width / 2;
-    this.scoreLabelText.y = 10;
+    this.scoreLabelText.y = 8;
 
     this.scoreText.anchor.set(0.5, 0);
     this.scoreText.x = layout.width / 2;
@@ -151,38 +182,84 @@ export class UIRenderer {
     this.streakText.x = layout.width / 2;
     this.streakText.y = layout.streakY;
 
-    this.highScoreText.anchor.set(1, 0);
-    this.highScoreText.x = layout.width - 12;
-    this.highScoreText.y = 10;
+    // BEST sits left of the pause button (34px + gap) in the top-right
+    this.bestLabelText.anchor.set(1, 0);
+    this.bestLabelText.x = right - 44;
+    this.bestLabelText.y = 10;
+
+    this.bestText.anchor.set(1, 0);
+    this.bestText.x = right - 44;
+    this.bestText.y = 24;
+
+    // Tier chip (top-left)
+    this.rankText.anchor.set(0, 0);
+    this.rankText.x = left + 10;
+    this.rankText.y = 12;
 
     this.goalText.anchor.set(0, 0);
-    this.goalText.x = 12;
-    this.goalText.y = 10;
+    this.goalText.x = left + 10;
+    this.goalText.y = 28;
 
     // Timer text: left-aligned above the bar
     this.timerText.anchor.set(0, 1);
-    this.timerText.x = layout.gridOriginX;
-    this.timerText.y = layout.gridOriginY - 14;
+    this.timerText.x = left;
+    this.timerText.y = layout.gridOriginY - 27;
 
     // Speed text: right-aligned above the bar
     this.speedText.anchor.set(1, 1);
-    this.speedText.x = layout.gridOriginX + layout.gridSize;
-    this.speedText.y = layout.gridOriginY - 14;
+    this.speedText.x = right;
+    this.speedText.y = layout.gridOriginY - 27;
+  }
 
-    this.rankText.anchor.set(0.5, 0);
-    this.rankText.x = layout.width / 2;
-    this.rankText.y = layout.streakY + 22;
+  /** Per-frame: score punch decay */
+  update(dt: number): void {
+    if (this.scorePunch > 0) {
+      this.scorePunch = Math.max(0, this.scorePunch - dt * 5);
+      this.scoreText.scale.set(1 + this.scorePunch * 0.18);
+    } else {
+      this.scoreText.scale.set(1);
+    }
   }
 
   updateScore(score: number): void {
+    if (score !== this.lastScore) {
+      const delta = score - this.lastScore;
+      this.scorePunch = Math.min(1, 0.35 + Math.min(delta / 400, 0.65));
+      this.lastScore = score;
+    }
     this.scoreText.text = score.toLocaleString();
     this.updateScoreColor(score);
   }
 
-  updateStreak(streak: number): void {
+  /**
+   * Streak readout with "safety pips": filled dots show how many more
+   * placements without a clear the streak can survive.
+   */
+  updateStreak(streak: number, safeMoves: number = 0, window: number = 0): void {
+    const g = this.streakPips;
+    g.clear();
     if (streak > 0) {
-      this.streakText.text = `STREAK \u00D7${streak}`;
+      this.streakText.text = `STREAK ×${streak}`;
       this.streakText.visible = true;
+
+      if (window > 0 && this.layout) {
+        const r = 3;
+        const gap = 9;
+        const totalW = (window - 1) * gap;
+        const startX = this.streakText.x + this.streakText.width / 2 + 12;
+        const y = this.streakText.y + this.streakText.height / 2;
+        for (let i = 0; i < window; i++) {
+          const x = startX + i * gap;
+          const filled = i < safeMoves;
+          g.circle(x, y, r);
+          g.fill({ color: filled ? THEME.gold : 0x000000, alpha: filled ? 0.95 : 0.35 });
+          if (!filled) {
+            g.circle(x, y, r);
+            g.stroke({ color: THEME.gold, alpha: 0.4, width: 1 });
+          }
+        }
+        void totalW;
+      }
     } else {
       this.streakText.visible = false;
     }
@@ -190,38 +267,49 @@ export class UIRenderer {
 
   updateHighScore(highScore: number): void {
     if (highScore > 0) {
-      this.highScoreText.text = `BEST ${highScore.toLocaleString()}`;
-      this.highScoreText.visible = true;
+      this.bestText.text = highScore.toLocaleString();
+      this.bestText.visible = true;
+      this.bestLabelText.visible = true;
     } else {
-      this.highScoreText.visible = false;
+      this.bestText.visible = false;
+      this.bestLabelText.visible = false;
     }
+  }
+
+  /** Flash the BEST readout gold once the player passes it */
+  markNewBest(score: number): void {
+    this.bestText.text = score.toLocaleString();
+    this.bestText.style.fill = THEME.gold;
+    this.bestLabelText.text = 'NEW BEST';
+    this.bestLabelText.style.fill = THEME.gold;
+    this.bestText.visible = true;
+    this.bestLabelText.visible = true;
   }
 
   updateProgress(difficulty: Difficulty, score: number): void {
     const status = getProgressStatus(difficulty, score);
-    this.rankText.text = `TIER ${status.current.label}`;
+    this.rankText.text = status.current.label;
     this.rankText.style.fill = status.current.color;
     this.rankText.visible = true;
 
     if (status.next) {
       const remaining = Math.max(0, status.next.minScore - score);
       this.goalText.text = `${remaining.toLocaleString()} TO ${status.next.label}`;
-      this.goalText.visible = true;
     } else {
       this.goalText.text = 'TOP TIER';
-      this.goalText.visible = true;
     }
+    this.goalText.visible = true;
 
-    this.drawProgressBar(status.progressToNext, status.current.color);
+    this.drawTierChip(status.progressToNext, status.current.color);
   }
 
   updateTimer(timeRemaining: number, maxTime: number, dt: number): void {
     if (!this.layout) return;
     const layout = this.layout;
     const barX = layout.gridOriginX;
-    const barY = layout.gridOriginY - 12; // moved up for bigger bar
+    const barY = layout.gridOriginY - 24;
     const barW = layout.gridSize;
-    const barH = 12; // enlarged from 5px to 12px
+    const barH = 11;
 
     const fill = Math.max(0, Math.min(timeRemaining / maxTime, 1.0));
     const fillW = Math.max(barH, barW * fill);
@@ -249,31 +337,37 @@ export class UIRenderer {
       glowColor = 0x4ade80;
     }
 
-    // Draw timer bar
     const g = this.timerBarGfx;
     g.clear();
 
     // Glow behind bar (always present)
-    g.roundRect(barX - 2, barY - 2, fillW + 4, barH + 4, 4);
-    g.fill({ color: glowColor, alpha: 0.12 });
+    g.roundRect(barX - 2, barY - 2, fillW + 4, barH + 4, 5);
+    g.fill({ color: glowColor, alpha: 0.14 });
 
     // Track background
-    g.roundRect(barX, barY, barW, barH, 3);
-    g.fill({ color: 0x111428, alpha: 0.6 });
+    g.roundRect(barX, barY, barW, barH, 4);
+    g.fill({ color: 0x0b0e22, alpha: 0.75 });
 
-    // Filled portion with gradient-like effect
-    g.roundRect(barX, barY, fillW, barH, 3);
+    // Filled portion
+    g.roundRect(barX, barY, fillW, barH, 4);
     g.fill({ color: barColor });
 
     // Top highlight strip
-    g.roundRect(barX + 1, barY + 1, fillW - 2, barH * 0.35, 2);
-    g.fill({ color: 0xffffff, alpha: 0.15 });
+    g.roundRect(barX + 1, barY + 1, Math.max(0, fillW - 2), barH * 0.4, 3);
+    g.fill({ color: 0xffffff, alpha: 0.18 });
+
+    // Tick marks every 25%
+    for (let i = 1; i < 4; i++) {
+      const tx = barX + (barW * i) / 4;
+      g.rect(tx, barY + 2, 1, barH - 4);
+      g.fill({ color: 0x000000, alpha: 0.35 });
+    }
 
     // Pulse glow when low
     if (isLow) {
       this.pulsePhase += dt * (isCritical ? 8 : 4);
       const pulseAlpha = 0.25 + Math.sin(this.pulsePhase) * 0.2;
-      g.roundRect(barX - 1, barY - 1, fillW + 2, barH + 2, 4);
+      g.roundRect(barX - 1, barY - 1, fillW + 2, barH + 2, 5);
       g.fill({ color: glowColor, alpha: pulseAlpha });
     } else {
       this.pulsePhase = 0;
@@ -294,41 +388,36 @@ export class UIRenderer {
     }
   }
 
-  /** Draw the speed-time bar and speed multiplier text */
+  /** Thin "speed bonus" bar under the timer: full right after a placement, draining as you hesitate */
   updateSpeedBar(speedFraction: number, speedWindow: number, elapsed: number): void {
     if (!this.layout) return;
     const layout = this.layout;
 
     const barX = layout.gridOriginX;
-    const barY = layout.gridOriginY - 2;
+    const barY = layout.gridOriginY - 9;
     const barW = layout.gridSize;
     const barH = 3;
 
     const fill = Math.max(0, 1 - elapsed / speedWindow);
     const fillW = Math.max(barH, barW * fill);
 
-    // Color by speed fraction
     let color: number;
-    if (speedFraction >= 0.9) color = 0x20bf6b;
+    if (speedFraction >= 0.9) color = 0x22d3ee;
     else if (speedFraction >= 0.6) color = 0xf59e0b;
     else color = 0x4a5568;
 
     const g = this.speedBarGfx;
     g.clear();
 
-    // Track background
-    g.roundRect(barX, barY, barW, barH, 1);
-    g.fill({ color: 0x111428, alpha: 0.4 });
+    g.roundRect(barX, barY, barW, barH, 1.5);
+    g.fill({ color: 0x0b0e22, alpha: 0.5 });
 
-    // Filled portion
     if (fill > 0) {
-      g.roundRect(barX, barY, fillW, barH, 1);
+      g.roundRect(barX, barY, fillW, barH, 1.5);
       g.fill({ color });
     }
 
-    // Speed multiplier text
-    const display = `x${speedFraction.toFixed(1)}`;
-    this.speedText.text = display;
+    this.speedText.text = `⚡${speedFraction.toFixed(1)}x`;
     this.speedText.style.fill = color;
     this.speedText.visible = true;
   }
@@ -343,22 +432,28 @@ export class UIRenderer {
     this.scoreText.style.fill = color;
   }
 
-  private drawProgressBar(progressToNext: number, color: number): void {
+  private drawTierChip(progressToNext: number, color: number): void {
     if (!this.layout) return;
+
+    const panel = this.tierPanel;
+    panel.clear();
+    const x = this.layout.gridOriginX;
+    const y = 6;
+    const w = Math.max(110, Math.max(this.rankText.width, this.goalText.width) + 20);
+    const h = 44;
+    drawPanel(panel, x, y, w, h, 10, 0.5);
 
     const g = this.progressBarGfx;
     g.clear();
+    const bx = x + 10;
+    const by = y + h - 8;
+    const bw = w - 20;
+    const bh = 3;
+    const fillWidth = Math.max(bh, bw * progressToNext);
 
-    const width = Math.min(180, this.layout.gridSize * 0.46);
-    const height = 5;
-    const x = this.layout.width / 2 - width / 2;
-    const y = this.rankText.y + 18;
-    const fillWidth = Math.max(height, width * progressToNext);
-
-    g.roundRect(x, y, width, height, 2);
-    g.fill({ color: 0x111428, alpha: 0.5 });
-
-    g.roundRect(x, y, fillWidth, height, 2);
+    g.roundRect(bx, by, bw, bh, 1.5);
+    g.fill({ color: 0x000000, alpha: 0.45 });
+    g.roundRect(bx, by, fillWidth, bh, 1.5);
     g.fill({ color, alpha: 0.95 });
   }
 }
