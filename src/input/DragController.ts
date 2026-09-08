@@ -110,10 +110,17 @@ export class DragController {
     return -1;
   }
 
-  /** Check if pointer position is in the tray cancel zone */
+  /**
+   * Check if a drop should be treated as "put it back in the tray".
+   *
+   * The dragged piece is drawn lifted above the finger (dragOffsetY), so we
+   * judge by where the piece is, not where the finger is. A finger below the
+   * board while aiming at the bottom rows must still count as a board drop.
+   */
   private isInTrayZone(py: number): boolean {
     const layout = this.layoutManager.layout;
-    return py >= layout.trayOriginY;
+    const pieceCenterY = py + layout.dragOffsetY;
+    return pieceCenterY >= layout.trayOriginY;
   }
 
   private handlePointerDown = (e: PointerEvent): void => {
@@ -211,7 +218,10 @@ export class DragController {
     } else if (this.dragging) {
       // Normal drag end — check for tray cancel zone
       this.updateGridSnap(px, py);
-      this.dragging.inTrayZone = this.isInTrayZone(py);
+      // A valid board position always wins over the tray cancel zone: if the
+      // player saw a valid ghost preview, releasing must place the piece.
+      const valid = this.dragging.gridPos !== null && this.dragging.isValid;
+      this.dragging.inTrayZone = !valid && this.isInTrayZone(py);
       this.onDragEnd(this.dragging);
       this.dragging = null;
     }
